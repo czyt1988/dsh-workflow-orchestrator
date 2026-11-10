@@ -193,7 +193,7 @@ flowchart LR
 - 简体中文、GitHub 风格 Markdown，UTF-8、LF、无 BOM、无 tab；
 - 每篇开头有面包屑，代码引用带相对链接与行号；
 - 不写本机绝对路径、token、Cookie、个人会话内容；路径示例用 `D:\path\to\...` 占位；
-- 文档改动后至少跑 `npm run check`：`verify-package.mjs` 会检查 `docs/dev/README.md`、`docs/user/README.md`、截图数量等仓库级文件是否齐全（[`tools/verify-package.mjs:188`](../../tools/verify-package.mjs#L188)），`check-docs.mjs` 会扫描全仓库 Markdown 的相对链接、图片、Mermaid 代码块与敏感内容（[`tools/check-docs.mjs:65`](../../tools/check-docs.mjs#L65)）。
+- 文档改动后至少跑 `npm run check`：`verify-package.mjs` 会检查 `docs/dev/README.md`、`docs/user/README.md`、截图数量等仓库级文件是否齐全（[`tools/verify-package.mjs:188`](../../tools/verify-package.mjs#L188)），`check-docs.mjs` 会扫描全仓库 Markdown 的相对链接、图片、Mermaid 代码块与敏感内容（[`tools/check-docs.mjs:80`](../../tools/check-docs.mjs#L80)）。
 
 ## 相关文档
 

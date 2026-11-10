@@ -128,11 +128,11 @@ flowchart TD
 | 清单 | 名称、SemVer、MIT、ESM、`engines.node`、repository、`private` 不为 true、`scripts.test` / `scripts.check`、keywords（[`tools/verify-package.mjs:90`](../../tools/verify-package.mjs#L90)） |
 | DSH 声明 | `manifestVersion`、`client.platform`、`bundle.patch`、patch 的 `insert`/id/name（[`tools/verify-package.mjs:105`](../../tools/verify-package.mjs#L105)） |
 | 入口 | `main` 存在、宿主导出 `name`/`inject`/`apply`、浏览器半区使用 `__ModuleLoader__`、`exports["./client"]` 指向正确（[`tools/verify-package.mjs:125`](../../tools/verify-package.mjs#L125)） |
-| 发布白名单 | `files` 非空、含 LICENSE/README、每条都真实存在（[`tools/verify-package.mjs:157`](../../tools/verify-package.mjs#L157)） |
+| 发布白名单 | `files` 非空、含 LICENSE/README、每条都真实存在（[`tools/verify-package.mjs:158`](../../tools/verify-package.mjs#L158)） |
 | locale/图标 | `zh`/`en` 可解析且含标题描述、`icon.svg` 合法（[`tools/verify-package.mjs:169`](../../tools/verify-package.mjs#L169)） |
 | 仓库文件 | README、AGENTS、LICENSE、CONTRIBUTING、CODE_OF_CONDUCT、SECURITY、CHANGELOG、docs 索引与截图、`.github` 模板与 CI 等（[`tools/verify-package.mjs:188`](../../tools/verify-package.mjs#L188)） |
 | 截图 | `docs/assets/images/` 至少 8 张 PNG（[`tools/verify-package.mjs:212`](../../tools/verify-package.mjs#L212)） |
-| 文档 lint | 全仓库 Markdown 的相对链接、图片位置、Mermaid 非空/闭合、本机绝对路径与凭据模式（[`tools/check-docs.mjs:55`](../../tools/check-docs.mjs#L55)） |
+| 文档 lint | 全仓库 Markdown 的相对链接、图片位置、Mermaid 非空/闭合、本机绝对路径与凭据模式（[`tools/check-docs.mjs:80`](../../tools/check-docs.mjs#L80)） |
 
 CI（[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)）在 `ubuntu-latest` / `windows-latest` × Node 20 / 22 上跑 `npm test` 与 `npm run check`（后者同时覆盖包结构与文档自检），权限只读、超时 10 分钟。E2E 因需要真实模型凭据与浏览器，不进 CI。
 

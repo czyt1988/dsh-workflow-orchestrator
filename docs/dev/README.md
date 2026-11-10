@@ -62,7 +62,7 @@ flowchart TB
 | [`test/store-routes.test.mjs`](../../test/store-routes.test.mjs) | 存储往返、清洗、路由与准入栅栏（3 个） | 临时 `DSH_HOME` |
 | [`tools/e2e-full.cjs`](../../tools/e2e-full.cjs) | 隔离 `DSH_HOME` 的全链路 E2E（53 条断言，配置全部走环境变量） | [`bootstrapEnvironment`](../../tools/e2e-full.cjs#L215) |
 | [`tools/verify-package.mjs`](../../tools/verify-package.mjs) | 发布前包结构与仓库文件自检（`npm run check:package`） | [`check`](../../tools/verify-package.mjs#L29) |
-| [`tools/check-docs.mjs`](../../tools/check-docs.mjs) | 文档相对链接、图片、Mermaid 与敏感内容自检（`npm run check:docs`） | [`checkDocument`](../../tools/check-docs.mjs#L65) |
+| [`tools/check-docs.mjs`](../../tools/check-docs.mjs) | 文档相对链接、图片、Mermaid 与敏感内容自检（`npm run check:docs`） | [`checkDocument`](../../tools/check-docs.mjs#L80) |
 | [`cordis.patch.yml`](../../cordis.patch.yml) | Bundle patch：向 profile 插入宿主半区的 loader 行 | [`- insert:`](../../cordis.patch.yml#L6) |
 | [`package.json`](../../package.json) | 插件清单：`dsh.bundle` / `dsh.client` / `manifestVersion` / `exports` / `files` | [`dsh`](../../package.json#L29) |
 
