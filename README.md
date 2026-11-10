@@ -48,6 +48,8 @@
 | 🤖 真实任务会话 | 每个任务节点在启动时通过 `sessionController.create` 创建**真实 DSH 任务会话**，出现在对应工作区的任务列表里，可一键跳转 |
 | 🔀 三类拓扑 | 不连线 = 同时启动；`A → B` = 串行；`A、B → 并行网关 → C` = 等所有分支完成后汇合 |
 | 🎛️ 完整属性面板 | 提示词、上游上下文（完整输出 / 摘要 / 不传）、工作区、Agent 模式、权限预设、模型，全部来自宿主实时目录 |
+| 🎨 跨工作区配色 | 任务节点卡片显示所属工作区；同一工作流跨多个工作区时显示提示条，不同工作区的卡片用不同浅色背景区分，颜色可在属性区逐个调整，卡片边框仍只表示运行状态 |
+| ▶️ 从任意节点开始执行 | 选中任务节点点属性区顶部的「从此节点开始执行」，只运行该节点及其下游，前置与无关节点标记为「未执行」且不创建任务会话 |
 | 💾 自动保存与持久化 | 画布改动自动保存到 `$DSH_HOME/workflow-orchestrator/workflows.json`，刷新、重启后仍在；最近 20 次运行记录一并保留 |
 | 📜 运行日志 | 底部消息窗口按节点输出 INFO / WARN / ERROR，包含会话 ID、耗时与失败原因 |
 | ⏹️ 两种终止方式 | 「仅停止工作流」让运行中的任务跑完；「停止并终止任务」同时取消正在运行的任务会话 |
@@ -165,7 +167,7 @@ flowchart LR
    - 不连线 → 同时启动
    - `A → B` → A 完成后启动 B
    - `A、B → 并行网关 → C` → A、B 都完成后启动 C
-5. **执行**：点击顶部 **执行**，底部消息窗口实时输出每个节点的启动、会话 ID、完成与错误。
+5. **执行**：点击顶部 **执行**（全量执行），底部消息窗口实时输出每个节点的启动、会话 ID、完成与错误。只想跑后半段时，选中某个任务节点，点属性区顶部的 **从此节点开始执行**，前置与无关节点会标记为「未执行」。
 6. **查看会话**：节点属性区的「打开任务会话」可跳到工作区里真实创建的任务会话。
 
 ## 执行语义
@@ -194,6 +196,8 @@ flowchart LR
 | 并行网关 | 不创建任务会话，只做汇合与扇出；必须至少一条输入、一条输出连线 |
 | 前序失败/取消/跳过 | 下游节点标记 `skipped`，只沿失败分支级联，不相关分支继续跑完 |
 | 任务节点完成判定 | 任务会话本轮以 `completed` 结束；模型报错、被取消、上下文耗尽等记为 `failed` |
+| 从节点开始执行 | 只执行该节点及其通过有向边可达的下游；其余节点记为 `not-run`（未执行），不创建任务会话，也不计入失败 |
+| 跨工作区 | 每个任务节点的有效工作区独立解析（节点指定 → 工作流默认 → 宿主默认）；跨工作区只影响卡片配色与提示，不改变调度 |
 | 运行状态 | 任一任务失败 → 整体 `failed`；收到终止 → 整体 `cancelled`；否则 `completed` |
 | 并发与超时 | 同时最多 8 个任务执行；单任务默认 6 小时超时（超时后请求取消会话） |
 | 上游上下文 | 默认把上游任务的最终回复附在提示词后；可改为只带会话摘要或完全不传 |
@@ -277,8 +281,10 @@ E2E 会在隔离的 `DSH_HOME` 中启动 `dsh --profile web`，用 Playwright �
 
 - 只提供**并行网关**一种网关（按需求设计）；没有排他网关、条件分支。
 - 每个任务节点**只执行一次**：不支持循环、重试、定时触发。
+- 「从此节点开始执行」只缩小本次运行范围，不做断点续跑：未执行的节点不会自动补跑，下一次「执行」仍会全量执行。
 - 工作流运行期间可以继续编辑画布，但本次运行使用**启动时的快照**。
-- 提示词为空的任务节点不允许执行；并行网关必须至少一条输入与一条输出连线。
+- 提示词为空的任务节点不允许执行（「从此节点开始执行」只校验本次执行范围内的节点，范围外的空提示词不阻塞）。
+- 并行网关必须至少一条输入与一条输出连线；「从此节点开始执行」时只校验范围内的网关与子图，范围外不参与校验与调度。
 - 会话标题由 DSH 根据提示词自动生成，插件不会重命名任务。
 - 已在 DSH 桌面端的 `desktop` / `web` profile 上验证；未声明对 DSH 版本的 peer 依赖，升级 DSH 后请重跑 E2E。
 
@@ -309,7 +315,7 @@ E2E 会在隔离的 `DSH_HOME` 中启动 `dsh --profile web`，用 Playwright �
 
 ## English overview
 
-**dsh-workflow-orchestrator** is a visual workflow plugin for [DeepSeek Harness](https://github.com/deepseek-ai). It adds a first-level "Workflow" page: drag task nodes onto a canvas, connect them (sequential, parallel, or joined by a parallel gateway), and run the graph. Every task node creates a **real DSH task session** in the selected workspace; progress and errors stream into a run log. Workflows persist to `$DSH_HOME/workflow-orchestrator/workflows.json`. Zero runtime dependencies, Node.js ≥ 20.
+**dsh-workflow-orchestrator** is a visual workflow plugin for [DeepSeek Harness](https://github.com/deepseek-ai). It adds a first-level "Workflow" page: drag task nodes onto a canvas, connect them (sequential, parallel, or joined by a parallel gateway), and run the graph. Every task node creates a **real DSH task session** in the selected workspace; progress and errors stream into a run log. Task cards show which workspace each node belongs to and use distinct background colors across workspaces, while card borders keep expressing run status. A run can also start from any task node, executing only that node and its downstream nodes (the rest are marked "not run" without creating sessions). Workflows persist to `$DSH_HOME/workflow-orchestrator/workflows.json`. Zero runtime dependencies, Node.js ≥ 20.
 
 - Install: add this repository folder through the DSH plugin manager, or link it into the profile's `node_modules` and `dsh.profile.bundles`.
 - Test: `npm test` (unit) and `npm run check` (package manifest + docs lint); E2E requires the DSH desktop app, Playwright and model credentials.

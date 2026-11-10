@@ -123,6 +123,8 @@ E2E 每次运行会在 `.e2e/` 生成 `NN-name.png`。文档引用的截图是�
 | `stop-detach.png` | `20-stop-detach.png` | 仅停止工作流 |
 | `stop-cancel.png` | `21-stop-cancel.png` | 停止并终止任务 |
 | `failure.png` | `22-failure.png` | 失败节点与 ERROR 日志 |
+| `workspace-colors.png` | `23-workspace-colors.png` | 跨工作区提示条、任务卡片工作区行与分色、属性区配色设置 |
+| `run-from-node.png` | `24-run-from-node.png` | 从节点开始执行后的未执行节点、执行范围与启动日志 |
 
 更新截图时保持 1500×950 的界面比例与中文文案一致；截图变更后检查 README 与 docs 中的图注是否仍准确。
 

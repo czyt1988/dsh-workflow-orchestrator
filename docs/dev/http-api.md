@@ -32,7 +32,7 @@
 | `cache-control` | `no-store` |
 | `content-length` | 响应体字节数 |
 
-面板侧用 `payload?.ok !== true` 判定失败，并把 `error.message` 直接显示成横幅（[`lib/client.js:219`](../../lib/client.js#L219)）。
+面板侧用 `payload?.ok !== true` 判定失败，并把 `error.message` 直接显示成横幅（[`lib/client.js:240`](../../lib/client.js#L240)）。
 
 ### 1.2 准入栅栏
 
@@ -52,7 +52,7 @@
 
 ### 1.4 方法与路径分派
 
-分派顺序（[`lib/host/routes.js:88`](../../lib/host/routes.js#L88)）：
+分派顺序（[`lib/host/routes.js:89`](../../lib/host/routes.js#L89)）：
 
 1. `GET /api/health`、`GET /api/state`、`GET /api/run` 单独匹配；
 2. 其余命中 `GET_ONLY_ROUTES` 的请求 → **405 `method-error`**；
@@ -73,7 +73,7 @@
 | POST | `/api/save` | `{ workflow }` | `{ workflow }` |
 | POST | `/api/delete` | `{ workflowId }` | `{ removed, activeWorkflowId }` |
 | POST | `/api/active` | `{ workflowId }` | `{ activeWorkflowId }` |
-| POST | `/api/run` | `{ workflowId?, workflow? }` | `{ run, engine }` |
+| POST | `/api/run` | `{ workflowId?, workflow?, startNodeId? }` | `{ run, engine }` |
 | POST | `/api/stop` | `{ runId?, cancelTasks? }` | `{ run, engine }` |
 
 ```mermaid
@@ -92,9 +92,9 @@ sequenceDiagram
   C-->>R: undefined，放行
   R->>R: 读取并解析 2 MB 以内的 JSON
   R->>S: ready()
-  R->>E: start(workflowId, workflow)
+  R->>E: start(workflowId, workflow, { startNodeId })
   E->>S: save(覆盖版本) 或 get(workflowId)
-  E-->>R: run 快照
+  E-->>R: run 快照（含 startNodeId）
   R-->>P: 200 成功信封（value 含 run 与 engine）
 ```
 
@@ -194,6 +194,7 @@ sequenceDiagram
       "id": "run-1a2b3c4d",
       "workflowId": "wf-1a2b3c4d",
       "workflowName": "示例工作流",
+      "startNodeId": null,
       "status": "running",
       "stopRequested": false,
       "stopMode": null,
@@ -236,7 +237,7 @@ sequenceDiagram
 }
 ```
 
-`run` 是 `publicRun()` 视图：比持久化记录多 `active`、`failureSeen`、节点 `summary`，日志只保留最近 800 行（[`lib/host/engine.js:189`](../../lib/host/engine.js#L189)）。`engine.runs` 最多 10 条。
+`run` 是 `publicRun()` 视图：比持久化记录多 `active`、`failureSeen`、节点 `summary`，日志只保留最近 800 行（[`lib/host/engine.js:231`](../../lib/host/engine.js#L231)）。`run.startNodeId` 为 `null` 表示全量执行，为字符串表示本次从该节点开始执行；此时不在范围内的节点状态为 `not-run`。`engine.runs` 最多 10 条。
 
 ### 3.4 `POST /api/create`
 
@@ -328,16 +329,31 @@ sequenceDiagram
 { "workflowId": "wf-1a2b3c4d" }
 ```
 
-- 带 `workflow` 时，引擎会先把这份覆盖版本保存下来（[`lib/host/engine.js:258`](../../lib/host/engine.js#L258)），因此面板可以「边编辑边执行」当前画布；
+从某个节点开始执行时，额外带 `startNodeId`：
+
+```json
+{ "workflowId": "wf-1a2b3c4d", "startNodeId": "node-b" }
+```
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `workflowId` | string | 已保存工作流的 id；与 `workflow` 至少提供一个 |
+| `workflow` | object | 可选；当前画布覆盖版本，引擎会先保存这份定义再运行（[`lib/host/engine.js:300`](../../lib/host/engine.js#L300)） |
+| `startNodeId` | string | 可选；`null` / `undefined` / 空字符串都视为全量执行。非字符串（且非 `null`）→ 400 `workflow-error`「起始节点 ID 无效」（[`lib/host/routes.js:167`](../../lib/host/routes.js#L167)） |
+
+行为：
+
+- 带 `workflow` 时，引擎会先把这份覆盖版本保存下来，因此面板可以「边编辑边执行」当前画布；
 - 两者都没有 → 400「缺少 workflowId」；
 - 工作流已存在活动运行 → 400「该工作流正在运行（run ...）」；
-- 校验失败 → 400，消息以「工作流校验失败：」开头。
+- 校验失败 → 400，消息以「工作流校验失败：」开头；`startNodeId` 指向不存在的节点时是「工作流校验失败：起始节点不存在：&lt;id&gt;」；
+- 带 `startNodeId` 时只执行该节点及其下游可达节点，范围外节点在运行快照里状态为 `not-run`，`run.startNodeId` 记录起始节点 id。
 
 响应是 `{ run, engine }`，结构同 [`GET /api/run`](#33-get-apirun)。
 
 ### 3.9 `POST /api/stop`
 
-请求停止（[`lib/host/routes.js:171`](../../lib/host/routes.js#L171)）：
+请求停止（[`lib/host/routes.js:176`](../../lib/host/routes.js#L176)）：
 
 ```json
 { "runId": "run-1a2b3c4d", "cancelTasks": true }

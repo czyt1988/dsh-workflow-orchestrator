@@ -12,9 +12,9 @@ $DSH_HOME/workflow-orchestrator/workflows.json
 
 ## 1. 文件位置
 
-`resolveDataFile(ctx)` 按以下顺序确定目录（[`lib/host/store.js:27`](../../lib/host/store.js#L27)）：
+`resolveDataFile(ctx)` 按以下顺序确定目录（[`lib/host/store.js:28`](../../lib/host/store.js#L28)）：
 
-1. Cordis 服务 `dshHomePath()`（可选的按需服务，[`lib/host/store.js:30`](../../lib/host/store.js#L30)）；
+1. Cordis 服务 `dshHomePath()`（可选的按需服务，[`lib/host/store.js:31`](../../lib/host/store.js#L31)）；
 2. 环境变量 `DSH_HOME`；
 3. 用户主目录下的 `.dsh`。
 
@@ -61,11 +61,13 @@ erDiagram
   }
   SETTINGS {
     string defaultWorkspaceId
+    object workspaceColors
   }
   RUN {
     string id
     string workflowId
     string workflowName
+    string startNodeId
     string status
     string stopMode
     number startedAt
@@ -92,7 +94,9 @@ erDiagram
   }
 ```
 
-`RUN.workflowId` 是逻辑引用：删除工作流时会把它的历史运行一并删掉（[`lib/host/store.js:256`](../../lib/host/store.js#L256)），但文件里没有外键约束。
+`RUN.workflowId` 是逻辑引用：删除工作流时会把它的历史运行一并删掉（[`lib/host/store.js:285`](../../lib/host/store.js#L285)），但文件里没有外键约束。
+
+`RUN_NODE.status` 取 7 种状态之一：`pending` / `running` / `completed` / `failed` / `cancelled` / `skipped` / `not-run`（未执行，仅范围执行时出现）。`SETTINGS.workspaceColors` 是可缺省的对象，最多 40 项。
 
 ## 3. 顶层结构
 
@@ -108,7 +112,7 @@ erDiagram
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `version` | number | 当前常量 `STATE_VERSION = 1`（[`lib/host/store.js:19`](../../lib/host/store.js#L19)）。读取时不校验旧值，写回总是 1，暂无迁移逻辑 |
-| `activeWorkflowId` | string \| null | 面板上次显示的工作流；加载时若指向不存在的工作流，回退到第一个或 `null`（[`lib/host/store.js:199`](../../lib/host/store.js#L199)） |
+| `activeWorkflowId` | string \| null | 面板上次显示的工作流；加载时若指向不存在的工作流，回退到第一个或 `null`（[`lib/host/store.js:228`](../../lib/host/store.js#L228)） |
 | `workflows` | object[] | 工作流定义数组，文档顺序即面板下拉顺序 |
 | `runs` | object[] | 已完成运行的 compact 记录，最旧在前 |
 
@@ -158,7 +162,8 @@ erDiagram
         { "id": "edge-1", "from": "node-a", "to": "gw-1" }
       ],
       "settings": {
-        "defaultWorkspaceId": "workspace-1"
+        "defaultWorkspaceId": "workspace-1",
+        "workspaceColors": { "workspace-1": "#2563eb", "workspace-2": "#16a34a" }
       }
     }
   ],
@@ -172,25 +177,25 @@ erDiagram
 
 | 字段 | 类型 | 清洗/默认规则 |
 | --- | --- | --- |
-| `id` | string | 缺失时 `newId('wf')`；保存已有工作流时沿用 previous 的 id（[`lib/host/store.js:127`](../../lib/host/store.js#L127)） |
+| `id` | string | 缺失时 `newId('wf')`；保存已有工作流时沿用 previous 的 id（[`lib/host/store.js:155`](../../lib/host/store.js#L155)） |
 | `name` | string | 空则「未命名工作流」，截断到 120 字 |
 | `createdAt` | number | 优先 previous、其次 source 的数字，否则当前时间 |
 | `updatedAt` | number | 每次 save 都刷新为当前时间 |
 | `nodes` | Node[] | 最多 200 个，超出部分被丢弃 |
 | `edges` | Edge[] | 最多 400 条；非法边被丢弃 |
-| `settings` | object | 只保留非空的 `defaultWorkspaceId`，否则 `{}` |
+| `settings` | object | 只保留非空的 `defaultWorkspaceId` 与合法的 `workspaceColors`，否则 `{}`（[`lib/host/store.js:148`](../../lib/host/store.js#L148)） |
 
 **Node**
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `id` | string | 缺失或与前面节点重复时重新生成 `newId('node')`（[`lib/host/store.js:79`](../../lib/host/store.js#L79)） |
+| `id` | string | 缺失或与前面节点重复时重新生成 `newId('node')`（[`lib/host/store.js:102`](../../lib/host/store.js#L102)） |
 | `type` | `'task' \| 'parallel'` | 任何非 `parallel` 的值都归一为 `task` |
 | `title` | string | 空则「并行网关」/「任务 N」，截断 80 字 |
-| `x` / `y` | number | `clampNumber(...)`：x 限制在 -20000..20000，y 限制在 -20000..20000；非数字回退到 `index * 240` / `80`（[`lib/host/store.js:87`](../../lib/host/store.js#L87)） |
+| `x` / `y` | number | `clampNumber(...)`：x 限制在 -20000..20000，y 限制在 -20000..20000；非数字回退到 `index * 240` / `80`（[`lib/host/store.js:111`](../../lib/host/store.js#L111)） |
 | `task` | object | **只有任务节点**才有；并行网关没有该字段 |
 
-**Task**（节点内嵌对象，[`lib/host/store.js:57`](../../lib/host/store.js#L57)）
+**Task**（节点内嵌对象，[`lib/host/store.js:81`](../../lib/host/store.js#L81)）
 
 | 字段 | 类型 | 规则 |
 | --- | --- | --- |
@@ -199,9 +204,9 @@ erDiagram
 | `workspaceId` | string | 可选；只接受非空字符串 |
 | `agentPreset` | string | 可选；只接受非空字符串 |
 | `permissionPreset` | string | 可选；只接受非空字符串 |
-| `model` | object | 可选；必须同时有非空 `provider` 与 `model` 字符串，`reasoningEffort` 可选（[`lib/host/store.js:45`](../../lib/host/store.js#L45)） |
+| `model` | object | 可选；必须同时有非空 `provider` 与 `model` 字符串，`reasoningEffort` 可选（[`lib/host/store.js:46`](../../lib/host/store.js#L46)） |
 
-**Edge**（[`lib/host/store.js:95`](../../lib/host/store.js#L95)）
+**Edge**（[`lib/host/store.js:119`](../../lib/host/store.js#L119)）
 
 - `from` / `to` 必须是非空字符串且都指向已存在的节点；
 - 禁止自环（`from === to`）；
@@ -209,22 +214,33 @@ erDiagram
 - `id` 缺失时生成 `newId('edge')`；
 - 到达 400 条后停止接收。
 
+**Settings**
+
+| 字段 | 类型 | 清洗规则 |
+| --- | --- | --- |
+| `defaultWorkspaceId` | string | 可选；只接受非空字符串，否则整个键不写回（[`lib/host/store.js:149`](../../lib/host/store.js#L149)） |
+| `workspaceColors` | object | 可选；键为非空工作区 ID，值为合法的十六进制颜色；`#rgb` 缩写会展开为 `#rrggbb` 并统一小写；最多 40 项，非法项丢弃；空对象不写回（[`lib/host/store.js:67`](../../lib/host/store.js#L67)） |
+
+`settings` 里除这两个字段之外的任何键都会被丢弃。范围执行产生的 `run.startNodeId` 不是工作流定义字段，只存在于运行记录中，因此不经过 `sanitizeWorkflow`。
+
 ## 5. 运行记录
 
 ### 5.1 内存态与持久态
 
-运行中引擎内部保存完整状态（含 `failureSeen`、`summary`、最新 800 行日志，见 [`lib/host/engine.js:265`](../../lib/host/engine.js#L265)）。运行结束后 `recordRun()` 调用 `compactRun()`（[`lib/host/store.js:139`](../../lib/host/store.js#L139)）写入文件：
+运行中引擎内部保存完整状态（含 `failureSeen`、`summary`、最新 800 行日志，见 [`lib/host/engine.js:310`](../../lib/host/engine.js#L310)）。运行结束后 `recordRun()` 调用 `compactRun()`（[`lib/host/store.js:167`](../../lib/host/store.js#L167)）写入文件：
 
 | 字段 | 持久化 | 说明 |
 | --- | --- | --- |
-| `id`、`workflowId`、`workflowName`、`status`、`startedAt`、`endedAt` | 是 | 运行标识与终态 |
+| `id`、`workflowId`、`workflowName`、`startedAt`、`endedAt` | 是 | 运行标识与终态 |
+| `startNodeId` | 是 | `null` = 全量执行；字符串 = 本次「从节点开始执行」的起始节点 ID（[`lib/host/store.js:186`](../../lib/host/store.js#L186)） |
+| `status` | 是 | 运行终态；节点 `status` 可能是 `not-run` |
 | `stopMode` | 是 | `null` / `detach` / `cancel-tasks` |
 | `error` | 是 | 截断 2000 字 |
-| `nodes` | 是 | 每个节点保留 `id/title/type/status/sessionId/startedAt/endedAt/error/output`；`error` 截断 2000 字，`output` 截断 4000 字 |
+| `nodes` | 是 | 每个节点保留 `id/title/type/status/sessionId/startedAt/endedAt/error/output`；`not-run` 节点的 `endedAt` 为 `null`、无 `sessionId`；`error` 截断 2000 字，`output` 截断 4000 字（[`lib/host/store.js:178`](../../lib/host/store.js#L178)） |
 | `log` | 是 | 只保留最近 400 行 |
 | `failureSeen`、`stopRequested`、`active`、节点 `summary` | 否 | 仅内存/接口快照使用 |
 
-此外面板通过 `GET /api/run` 拿到的是 `publicRun()` 视图：补 `active = status === 'running'`，日志截最近 800 行（[`lib/host/engine.js:189`](../../lib/host/engine.js#L189)）。运行快照合并时只返回最近 10 条（[`lib/host/engine.js:218`](../../lib/host/engine.js#L218)）。
+此外面板通过 `GET /api/run` 拿到的是 `publicRun()` 视图：补 `active = status === 'running'`，日志截最近 800 行（[`lib/host/engine.js:231`](../../lib/host/engine.js#L231)）。运行快照合并时只返回最近 10 条（[`lib/host/engine.js:253`](../../lib/host/engine.js#L253)）。
 
 ### 5.2 运行示例
 
@@ -233,6 +249,7 @@ erDiagram
   "id": "run-1a2b3c4d",
   "workflowId": "wf-1a2b3c4d",
   "workflowName": "示例工作流",
+  "startNodeId": null,
   "status": "completed",
   "stopMode": null,
   "startedAt": 1760000001000,
@@ -269,16 +286,33 @@ erDiagram
 }
 ```
 
+「从节点开始执行」的记录把 `startNodeId` 设为起始节点 id，范围外节点状态为 `not-run`，日志第一条是范围说明：
+
+```json
+{
+  "id": "run-1a2b3c4d",
+  "startNodeId": "node-b",
+  "status": "completed",
+  "nodes": {
+    "node-a": { "id": "node-a", "title": "任务 A", "type": "task", "status": "not-run", "sessionId": null, "startedAt": null, "endedAt": null, "error": null, "output": null },
+    "node-b": { "id": "node-b", "title": "任务 B", "type": "task", "status": "completed", "sessionId": "session-example", "startedAt": 1760000001000, "endedAt": 1760000006000, "error": null, "output": "……" }
+  },
+  "log": [
+    { "time": 1760000001000, "level": "info", "message": "从节点「任务 B」开始执行：跳过 1 个不在下游范围内的节点" }
+  ]
+}
+```
+
 ## 6. 输入清洗
 
-客户端提交的任何内容都视为不可信。`sanitizeWorkflow(input, previous)`（[`lib/host/store.js:115`](../../lib/host/store.js#L115)）是所有写入路径的统一入口：
+客户端提交的任何内容都视为不可信。`sanitizeWorkflow(input, previous)`（[`lib/host/store.js:139`](../../lib/host/store.js#L139)）是所有写入路径的统一入口：
 
 - `POST /api/save` → `store.save(body.workflow)`；
 - `POST /api/create` → 构造空工作流后 `store.save(...)`；
 - `POST /api/run` 带 `workflow` 覆盖 → `engine.start()` 内 `store.save(workflowOverride)`；
-- 进程启动加载文件 → 对每条 raw workflow 再跑一遍清洗（[`lib/host/store.js:191`](../../lib/host/store.js#L191)）。
+- 进程启动加载文件 → 对每条 raw workflow 再跑一遍清洗（[`lib/host/store.js:220`](../../lib/host/store.js#L220)）。
 
-因此**手工改坏 JSON 通常不会让插件崩溃**：越界坐标被 clamp、坏边被丢弃、重复 ID 被重生成、缺失名称被补默认值。
+因此**手工改坏 JSON 通常不会让插件崩溃**：越界坐标被 clamp、坏边被丢弃、重复 ID 被重生成、缺失名称被补默认值。`settings` 也一样：`defaultWorkspaceId` 只保留非空字符串，`workspaceColors` 只保留「非空工作区 ID → 合法十六进制颜色」的键值对，最多 40 项，非法项直接丢弃。
 
 ## 7. 容量上限
 
@@ -289,15 +323,16 @@ erDiagram
 | 每工作流连线 | 400 | [`lib/host/store.js:22`](../../lib/host/store.js#L22) | 超出边被丢弃 |
 | 单节点提示词 | 200 000 字 | [`lib/host/store.js:23`](../../lib/host/store.js#L23) | 截断并补 `…` |
 | 运行记录 | 20 | [`lib/host/store.js:24`](../../lib/host/store.js#L24) | 保存时删最旧的；加载时 `slice(-20)` |
-| 持久化日志 | 400 行 | [`lib/host/store.js:164`](../../lib/host/store.js#L164) | `slice(-400)` |
-| 内存日志 | 800 行 | [`lib/host/engine.js:31`](../../lib/host/engine.js#L31) | 追加后裁剪 |
-| 接口返回的运行 | 10 条 | [`lib/host/engine.js:218`](../../lib/host/engine.js#L218) | `slice(-10)` |
-| 单个错误/输出文本 | 2000 / 4000 字 | [`lib/host/store.js:150`](../../lib/host/store.js#L150) | 截断 |
+| 工作区自定义颜色 | 40 | [`lib/host/store.js:25`](../../lib/host/store.js#L25) | 超出项被丢弃 |
+| 持久化日志 | 400 行 | [`lib/host/store.js:193`](../../lib/host/store.js#L193) | `slice(-400)` |
+| 内存日志 | 800 行 | [`lib/host/engine.js:35`](../../lib/host/engine.js#L35) | 追加后裁剪 |
+| 接口返回的运行 | 10 条 | [`lib/host/engine.js:253`](../../lib/host/engine.js#L253) | `slice(-10)` |
+| 单个错误/输出文本 | 2000 / 4000 字 | [`lib/host/store.js:178`](../../lib/host/store.js#L178) | 截断 |
 | 请求体 | 2 MB | [`lib/host/routes.js:19`](../../lib/host/routes.js#L19) | 直接拒绝，返回 400 |
 
 ## 8. 原子写与并发
 
-`persist()`（[`lib/host/store.js:282`](../../lib/host/store.js#L282)）的写入模型：
+`persist()`（[`lib/host/store.js:311`](../../lib/host/store.js#L311)）的写入模型：
 
 1. 调用时立刻 `JSON.stringify(this.state, null, 2)` 生成快照字符串；
 2. 挂到 `writeChain`（一条串行 Promise 链）末尾，保证同一进程内写入顺序；
@@ -320,12 +355,12 @@ flowchart LR
 
 注意两点：
 
-- 读取方拿到的都是 `cloneJson` 深拷贝（[`lib/host/store.js:220`](../../lib/host/store.js#L220)），修改返回值不会污染内存状态。
+- 读取方拿到的都是 `cloneJson` 深拷贝（[`lib/host/store.js:250`](../../lib/host/store.js#L250)），修改返回值不会污染内存状态。
 - 没有跨进程文件锁：两个 DSH 实例共享同一个 `DSH_HOME` 时是**最后写入者胜**。
 
 ## 9. 损坏文件处理
 
-`load()` 的异常分支（[`lib/host/store.js:204`](../../lib/host/store.js#L204)）：
+`load()` 的异常分支（[`lib/host/store.js:213`](../../lib/host/store.js#L213)）：
 
 | 情况 | 行为 |
 | --- | --- |

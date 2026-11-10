@@ -48,7 +48,9 @@ stateDiagram-v2
   state "失败 failed" as Failed
   state "已跳过 skipped" as Skipped
   state "已取消 cancelled" as Cancelled
+  state "未执行 not-run" as NotRun
   [*] --> Pending
+  [*] --> NotRun: 范围执行时的范围外节点
   Pending --> Running: 所有前序节点已完成
   Pending --> Skipped: 前序失败、取消或跳过
   Pending --> Cancelled: 终止且尚未启动
@@ -59,9 +61,12 @@ stateDiagram-v2
   Failed --> [*]
   Skipped --> [*]
   Cancelled --> [*]
+  NotRun --> [*]
 ```
 
 并行网关使用同一张状态图，但它不会进入「运行中」：所有前序完成时直接变为「已完成」，存在未完成前序时直接变为「已跳过」。工作流被终止后，尚未启动的节点进入「已取消」而不是「已跳过」。
+
+「未执行」（`not-run`）只在「从此节点开始执行」的运行里出现：它表示该节点不在本次执行范围，不会创建任务会话，也不算失败、不参与整体状态判定。详见 [执行与监控：从节点开始执行的范围](running-and-monitoring.md#从节点开始执行的范围)。
 
 ## 失败与跳过如何级联
 
@@ -77,7 +82,7 @@ stateDiagram-v2
 
 - 只要收到过终止请求（`detach` 或 `cancel-tasks`）→ 已停止；
 - 否则只要有节点失败或被跳过 → 失败；
-- 否则 → 已完成。
+- 否则 → 已完成（「未执行」不算失败）。
 
 补充：`cancel-tasks` 造成的任务取消**不会**被算作「失败」；但终止本身已经让运行成为「已停止」。失败分支留下的错误会写入运行记录，`detach` 模式下正在运行的任务完成后，节点可以仍是「已完成」，但整条工作流仍显示「已停止」。
 

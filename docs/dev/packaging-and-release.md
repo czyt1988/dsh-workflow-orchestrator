@@ -108,7 +108,7 @@ flowchart TD
 
 ## 5. 发布前检查清单
 
-- [ ] `npm test`：引擎 8 个 + 存储/路由 3 个用例全部通过。
+- [ ] `npm test`：引擎 12 个 + 存储/路由 5 个用例全部通过。
 - [ ] `npm run check`：包清单、`exports` 目标、bundle patch、locale、必备仓库文件、截图数量，以及文档相对链接、图片、Mermaid 与敏感内容全部通过。
 - [ ] `npm run test:e2e`（或最近一次可信的 E2E 结果）：53/53 通过，无 `pageerror` / `console.error`。
 - [ ] `docs/` 下相对链接与截图都存在；改过 UI 时截图已更新且与文案一致。

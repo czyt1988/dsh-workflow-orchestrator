@@ -6,15 +6,15 @@
 
 | 层级 | 文件 | 数量 | 需要 DSH？ | 典型耗时 |
 | --- | --- | --- | --- | --- |
-| 引擎单元测试 | [`test/engine.test.mjs`](../../test/engine.test.mjs) | 8 个用例 | 否（用假执行器） | 秒级 |
-| 存储/路由集成测试 | [`test/store-routes.test.mjs`](../../test/store-routes.test.mjs) | 3 个用例 | 否（临时目录 + 假 req/res） | 秒级 |
-| 全链路 E2E | [`tools/e2e-full.cjs`](../../tools/e2e-full.cjs) | 53 条断言 | 是（隔离 `DSH_HOME` + 真实模型） | 分钟级 |
+| 引擎单元测试 | [`test/engine.test.mjs`](../../test/engine.test.mjs) | 12 个用例 | 否（用假执行器） | 秒级 |
+| 存储/路由集成测试 | [`test/store-routes.test.mjs`](../../test/store-routes.test.mjs) | 5 个用例 | 否（临时目录 + 假 req/res） | 秒级 |
+| 全链路 E2E | [`tools/e2e-full.cjs`](../../tools/e2e-full.cjs) | 79 条断言 | 是（隔离 `DSH_HOME` + 真实模型） | 分钟级 |
 
 ```mermaid
 flowchart TB
-  A["E2E · 53 条断言 · 真实 DSH / Chromium / 模型"]
-  B["集成测试 · 3 个用例 · 存储往返 + 路由 + 准入"]
-  C["单元测试 · 8 个用例 · DAG 调度语义与 prompt 组装"]
+  A["E2E · 79 条断言 · 真实 DSH / Chromium / 模型"]
+  B["集成测试 · 5 个用例 · 存储往返 + 路由 + 准入"]
+  C["单元测试 · 12 个用例 · DAG 调度语义与 prompt 组装"]
   A --> B --> C
   C -.-> D["npm test · 每次提交"]
   B -.-> D
@@ -31,7 +31,7 @@ npm test
 node --test test/engine.test.mjs test/store-routes.test.mjs
 ```
 
-引擎单测不启动 DSH：`WorkflowEngine` 构造函数接受 `options.executeTask` 作为测试接缝（[`lib/host/engine.js:202`](../../lib/host/engine.js#L202)），测试用 `createHarness()` 注入假执行器（[`test/engine.test.mjs:32`](../../test/engine.test.mjs#L32)）。假执行器返回 `{ sessionId, output }`，用 `deferred()` 控制完成时机，从而精确断言「谁先启动、谁在等谁」。
+引擎单测不启动 DSH：`WorkflowEngine` 构造函数接受 `options.executeTask` 作为测试接缝（[`lib/host/engine.js:244`](../../lib/host/engine.js#L244)），测试用 `createHarness()` 注入假执行器（[`test/engine.test.mjs:32`](../../test/engine.test.mjs#L32)）。假执行器返回 `{ sessionId, output }`，用 `deferred()` 控制完成时机，从而精确断言「谁先启动、谁在等谁」。
 
 | 用例 | 覆盖语义 | 位置 |
 | --- | --- | --- |
@@ -43,6 +43,10 @@ node --test test/engine.test.mjs test/store-routes.test.mjs
 | `cancel-tasks` 停止：取消所有会话 | 每个运行中节点都调用 `sessionController.cancel` | [`test/engine.test.mjs:214`](../../test/engine.test.mjs#L214) |
 | 校验拒绝环、空提示词、悬空网关 | `validateWorkflow` 的三类问题 | [`test/engine.test.mjs:240`](../../test/engine.test.mjs#L240) |
 | 上游上下文穿过网关并区分模式 | `upstreamTaskNodes` + `composePrompt` 的 full/summary/none | [`test/engine.test.mjs:257`](../../test/engine.test.mjs#L257) |
+| 从中间节点开始只执行下游范围 | `start(..., { startNodeId })` 只启动起点及后继；范围外 `not-run`，整体 `completed`，启动顺序正确 | [`test/engine.test.mjs:287`](../../test/engine.test.mjs#L287) |
+| 从一条分支开始时忽略范围外网关输入 | `A→GW`、`B→GW`、`GW→C`，从 A 开始只跑 A、GW、C，B 未执行 | [`test/engine.test.mjs:326`](../../test/engine.test.mjs#L326) |
+| 从网关开始时直接扇出 | 起点是并行网关时没有范围内前序也视为可启动，直接放行后继 | [`test/engine.test.mjs:353`](../../test/engine.test.mjs#L353) |
+| 范围校验只看可达子图 | 范围外空提示词不阻塞；起始节点不存在、起点提示词为空会失败 | [`test/engine.test.mjs:376`](../../test/engine.test.mjs#L376) |
 
 ## 2. 集成测试：存储与路由
 
@@ -52,7 +56,9 @@ node --test test/engine.test.mjs test/store-routes.test.mjs
 | --- | --- | --- |
 | 定义持久化并可重新加载 | `save` → 原子写 → 新实例 `load`；非法边/自环被丢弃；运行记录往返；删除 | [`test/store-routes.test.mjs:67`](../../test/store-routes.test.mjs#L67) |
 | `sanitizeWorkflow` 修复恶意输入 | 默认名称、坐标 clamp、`contextMode` 归一、重复 id 重生成、坏边丢弃、settings 归一 | [`test/store-routes.test.mjs:119`](../../test/store-routes.test.mjs#L119) |
-| 路由覆盖与准入栅栏 | 403、state/create/save/run/stop、404、405 | [`test/store-routes.test.mjs:138`](../../test/store-routes.test.mjs#L138) |
+| 工作区颜色清洗与保持 | `settings.workspaceColors` 合法颜色保留、非法颜色与非对象丢弃、持久化往返 | [`test/store-routes.test.mjs:138`](../../test/store-routes.test.mjs#L138) |
+| 运行记录保留起点与未执行状态 | `recordRun` 保留 `startNodeId`，节点 `not-run` 原样落盘 | [`test/store-routes.test.mjs:166`](../../test/store-routes.test.mjs#L166) |
+| 路由覆盖与准入栅栏 | 403、state/create/save/run/stop、`/api/run` 透传 `startNodeId`、非法类型 400、404、405 | [`test/store-routes.test.mjs:202`](../../test/store-routes.test.mjs#L202) |
 
 注意：测试在删除临时目录前会重试等待最后一次写入落盘（[`test/store-routes.test.mjs:49`](../../test/store-routes.test.mjs#L49)），这是 Windows 上原子写 + 异步清理的已知需要。
 
@@ -98,11 +104,11 @@ flowchart LR
 
 - 端口：优先 `--port`（默认 58611），被占用时向上扫最多 40 个（[`tools/e2e-full.cjs:277`](../../tools/e2e-full.cjs#L277)）。
 - 服务生命周期：脚本自己 spawn `dsh web`，结束（或失败）时 `taskkill` 清理；`--keep-server` 可保留现场（[`tools/e2e-full.cjs:91`](../../tools/e2e-full.cjs#L91)）。
-- 浏览器：`chromium.launch({ ...(CHROME ? { executablePath: CHROME } : {}), headless: true })`，视口 1500×950（[`tools/e2e-full.cjs:1092`](../../tools/e2e-full.cjs#L1092)）。未设置 `CHROME_PATH` 时使用 Playwright 自带的 Chromium。
+- 浏览器：`chromium.launch({ ...(CHROME === undefined ? {} : { executablePath: CHROME }), headless: true })`，视口 1500×950（[`tools/e2e-full.cjs:1447`](../../tools/e2e-full.cjs#L1447)）。未设置 `CHROME_PATH` 时使用 Playwright 自带的 Chromium。
 - 页面 API 调用：通过 `page.evaluate` 在页面上下文里 `fetch`，因此走的是真实的同源路径与准入栅栏。
-- 失败证据：任何未捕获异常写 `.e2e/99-run-error.txt`，并尽量仍生成报告（[`tools/e2e-full.cjs:1127`](../../tools/e2e-full.cjs#L1127)）。
+- 失败证据：任何未捕获异常写 `.e2e/99-run-error.txt`，并尽量仍生成报告（[`tools/e2e-full.cjs:1486`](../../tools/e2e-full.cjs#L1486)）。
 
-### 3.3 断言分布（53 条）
+### 3.3 断言分布（79 条）
 
 | 组 | 断言数 | 覆盖内容 |
 | --- | --- | --- |
@@ -119,9 +125,11 @@ flowchart LR
 | `9-stop` | 8 | 终止对话框、detach 四断言、cancel-tasks 三断言 |
 | `10-failure` | 4 | 失败节点状态、错误信息、ERROR 日志、工作流失败 |
 | `11-console` | 2 | 无 `pageerror`、无 `console.error` |
-| **合计** | **53** | 报告写入 `.e2e/e2e-report.md` 与 `.e2e/e2e-report.json` |
+| `12-workspace` | 16 | 任务卡片工作区行与默认标记、默认调色板分色、背景色区分而边框不变、跨工作区提示条不阻塞、配色设置与持久化、恢复默认、工作区 hint |
+| `13-run-from-node` | 10 | 空提示词禁用按钮、按钮位于属性区顶部、运行记录 `startNodeId`、未执行状态与虚线弱化、未执行节点无会话、启动日志、执行范围行、整体 completed |
+| **合计** | **79** | 报告写入 `.e2e/e2e-report.md` 与 `.e2e/e2e-report.json` |
 
-断言由脚本内的 `check(group, name, pass, detail)` 记录（[`tools/e2e-full.cjs:106`](../../tools/e2e-full.cjs#L106)），报告由 [`renderReport()`](../../tools/e2e-full.cjs#L1040) 生成。
+断言由脚本内的 `check(group, name, pass, detail)` 记录（[`tools/e2e-full.cjs:106`](../../tools/e2e-full.cjs#L106)），报告由 [`renderReport()`](../../tools/e2e-full.cjs#L1375) 生成。
 
 ### 3.4 为什么 E2E 不进 CI
 
@@ -156,7 +164,8 @@ flowchart LR
 1. 在 [`test/engine.test.mjs`](../../test/engine.test.mjs) 里用 `createHarness({ executeTask })` 建引擎；
 2. 用 `task()` / `gateway()` / `workflow()` 构造定义；
 3. 用 `deferred()` 控制假执行器的完成时机，用 `waitFor()` 等状态；
-4. 断言运行结果（`recorded[0]`）与节点状态，必要时断言 `cancels`。
+4. 断言运行结果（`recorded[0]`）与节点状态，必要时断言 `cancels`；
+5. 范围执行用 `engine.start(workflowId, undefined, { startNodeId })` 启动，断言范围内节点被启动、范围外节点是 `not-run`（不创建会话）、`recorded[0].startNodeId` 正确。
 
 要求：用例之间不共享状态；不依赖真实计时器精度；每个用例只验证一条调度语义。
 
@@ -171,7 +180,7 @@ flowchart LR
 
 1. 在 [`tools/e2e-full.cjs`](../../tools/e2e-full.cjs) 里新增 `scenarioXxx()`，用 `check()` 记录断言；
 2. 需要证据时用 `screenshot(name)` 与 `writeEvidence(name, value)`，命名沿用 `NN-name`；
-3. 在文件底部的主流程里按顺序调用（[`tools/e2e-full.cjs:1085`](../../tools/e2e-full.cjs#L1085)）；
+3. 在文件底部的主流程里按顺序调用（[`tools/e2e-full.cjs:1440`](../../tools/e2e-full.cjs#L1440)）；
 4. 断言必须来自真实界面/接口行为，禁止手写固定 JSON 冒充结果；
 5. 新增断言会改变报告总数，同步更新本文的分布表。
 
@@ -199,6 +208,8 @@ flowchart LR
 | `stop-detach.png` | `20-stop-detach.png` | 仅停止工作流 |
 | `stop-cancel.png` | `21-stop-cancel.png` | 停止并终止任务 |
 | `failure.png` | `22-failure.png` | 失败节点与 ERROR 日志 |
+| `workspace-colors.png` | `23-workspace-colors.png` | 跨工作区提示条、卡片工作区行与分色、属性区配色设置 |
+| `run-from-node.png` | `24-run-from-node.png` | 从节点开始执行后的未执行节点、执行范围与启动日志 |
 
 3. 保持 1500×950 的界面比例与中文文案；截图里不要出现真实会话内容、个人路径或凭据；
 4. `npm run check` 会校验截图目录至少 8 张 PNG（[`tools/verify-package.mjs:212`](../../tools/verify-package.mjs#L212)），并检查 `docs/` 下的必备文件；其中的 `npm run check:docs` 还会校验所有文档的相对链接、图片、Mermaid 块与敏感内容（[`tools/check-docs.mjs:80`](../../tools/check-docs.mjs#L80)）；

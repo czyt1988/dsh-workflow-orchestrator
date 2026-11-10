@@ -58,9 +58,9 @@ flowchart TD
 | 文档 | 你会看到 |
 | --- | --- |
 | [快速开始](user/getting-started.md) | 两种安装方式、打开入口、第一个 A→B 工作流、安装验证 |
-| [界面导览](user/interface.md) | 工具栏、节点面板、画布、消息窗口、属性区与空态、快捷键 |
-| [搭建工作流](user/building-workflows.md) | 任务节点 / 并行网关、添加与连线、属性字段逐项说明、执行前校验 |
-| [执行与监控](user/running-and-monitoring.md) | 三类拓扑、节点与运行状态、日志、并发上限、真实任务会话 |
+| [界面导览](user/interface.md) | 工具栏、节点面板、画布、消息窗口、属性区与空态、工作区配色、快捷键 |
+| [搭建工作流](user/building-workflows.md) | 任务节点 / 并行网关、添加与连线、属性字段逐项说明、执行前校验、从某个节点开始执行 |
+| [执行与监控](user/running-and-monitoring.md) | 三类拓扑、从节点开始执行的范围、节点与运行状态、日志、并发上限、真实任务会话 |
 | [终止与错误处理](user/stopping-and-errors.md) | 两种终止模式、失败/跳过/取消的级联、错误定位 |
 | [数据与 FAQ](user/data-and-faq.md) | 数据文件位置与结构、容量上限、备份迁移、卸载重装、已知限制 |
 
@@ -69,7 +69,7 @@ flowchart TD
 | 文档 | 你会看到 |
 | --- | --- |
 | [架构](dev/architecture.md) | 浏览器半区 / 宿主半区、Cordis 服务注入、页面加载与数据流 |
-| [执行引擎](dev/execution-engine.md) | DAG 调度算法、并行网关、失败级联、两种停止模式、会话驱动 |
+| [执行引擎](dev/execution-engine.md) | DAG 调度算法、范围执行与校验、并行网关、失败级联、两种停止模式、会话驱动 |
 | [数据模型](dev/data-model.md) | `workflows.json` 全字段、运行记录、清洗规则、原子写、上限 |
 | [HTTP API](dev/http-api.md) | 全部路由、请求/响应信封、错误码、准入栅栏 |
 | [开发指南](dev/development.md) | 环境、目录、命令、本地联调、调试、编码与提交约定 |
@@ -93,13 +93,15 @@ flowchart TD
 | [`stop-detach.png`](assets/images/stop-detach.png) | 仅停止工作流 |
 | [`stop-cancel.png`](assets/images/stop-cancel.png) | 停止并终止运行中的任务 |
 | [`failure.png`](assets/images/failure.png) | 失败节点与 ERROR 日志 |
+| [`workspace-colors.png`](assets/images/workspace-colors.png) | 跨工作区提示条、卡片工作区分色与属性区配色设置 |
+| [`run-from-node.png`](assets/images/run-from-node.png) | 从节点开始执行后的未执行节点、执行范围与启动日志 |
 
 ## 文档约定（贡献者）
 
 - 简体中文、GitHub 风格 Markdown；UTF-8、LF、文件末尾留空行。
 - 每篇开头写面包屑：应用文档 `[文档首页](../README.md) / [用户文档](README.md)`；开发文档把末段换成 `[开发文档](README.md)`。
-- 截图写法：`![中文 alt](../assets/images/xxx.png)`，下一行 `*图 N：一句说明。*`；图号按文档系列连续编号（当前应用文档为图 1–13，新增截图顺延），同一张图不要在不同文档里重复编号。
+- 截图写法：`![中文 alt](../assets/images/xxx.png)`，下一行 `*图 N：一句说明。*`；图号按文档系列连续编号（当前应用文档为图 1–15，新增截图顺延），同一张图不要在不同文档里重复编号。
 - Mermaid 优先：节点文字包含括号、冒号、斜杠或中文标点时用双引号包起来，例如 `A["POST /api/run"]`。
 - 相对链接必须指向真实存在的文件；路径示例用占位符，不写本机绝对路径。
-- 涉及代码时给文件相对链接和行号，例如 `[lib/host/engine.js:373](../lib/host/engine.js#L373)`。
+- 涉及代码时给文件相对链接和行号，例如 `[lib/host/engine.js:298](../lib/host/engine.js#L298)`。
 - 文档与代码的同步矩阵、截图更新流程见 [AGENTS.md](../AGENTS.md) 第 8、9 节。
