@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Workflow Orchestrator",
+    "description": "Chain task sessions into an executable workflow: task nodes run in edge order, a parallel gateway joins every branch, and each node creates a real task session in its workspace."
+  }
+}

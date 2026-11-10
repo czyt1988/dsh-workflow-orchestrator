@@ -1,0 +1,69 @@
+{
+  "name": "dsh-workflow-orchestrator",
+  "version": "0.1.0",
+  "description": "Visual workflow orchestrator for DeepSeek Harness: chain task sessions with a parallel gateway, edit node prompts in a right-side inspector, and watch a run log.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/engine.test.mjs test/store-routes.test.mjs",
+    "test:watch": "node --test --watch test/engine.test.mjs test/store-routes.test.mjs",
+    "test:e2e": "node tools/e2e-full.cjs",
+    "check": "node tools/verify-package.mjs && node tools/check-docs.mjs",
+    "check:package": "node tools/verify-package.mjs",
+    "check:docs": "node tools/check-docs.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    },
+    "manifestVersion": 1
+  },
+  "files": [
+    "lib/index.js",
+    "lib/host",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "workflow",
+    "orchestrator",
+    "dag",
+    "parallel-gateway",
+    "automation"
+  ],
+  "author": "czyt1988",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/czyt1988/dsh-workflow-orchestrator.git"
+  },
+  "bugs": {
+    "url": "https://github.com/czyt1988/dsh-workflow-orchestrator/issues"
+  },
+  "homepage": "https://github.com/czyt1988/dsh-workflow-orchestrator#readme"
+}
