@@ -1,0 +1,53 @@
+name: 功能请求
+description: 提出新功能、改进建议或使用体验上的想法
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢建议！请先搜索 [已有 issue](https://github.com/czyt1988/dsh-workflow-orchestrator/issues)，确认没有相同或相近的请求。
+        大改动建议先在 issue 里对齐思路，再动手实现。
+
+  - type: textarea
+    id: background
+    attributes:
+      label: 问题背景
+      description: 你遇到了什么场景或限制？现在是怎么绕过的？请说明真实需求，而不只是想要某个具体按钮。
+      placeholder: 例如：我想让一条工作流里的多个节点共用同一份上游输出，但现在每次都要重复粘贴……
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望方案
+      description: 你希望插件怎么做？如果涉及界面，可用文字描述布局与交互流程（ASCII 草图也欢迎）。
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 替代方案
+      description: 你考虑过哪些其他做法？为什么它们不合适？
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: impact
+    attributes:
+      label: 影响范围
+      description: 这个改动会涉及哪些方面？（可多选）
+      options:
+        - label: 用户——界面、交互或使用流程
+        - label: 开发者——执行引擎、JSON API、存储格式或插件加载配置
+        - label: 文档——README、docs/ 说明、截图或 CHANGELOG
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: 补充信息
+      description: 参考实现、相关链接、优先级判断，或你愿意自己提 PR 的说明。
+    validations:
+      required: false

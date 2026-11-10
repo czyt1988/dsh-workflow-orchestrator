@@ -1,0 +1,40 @@
+# Changelog
+
+本文件记录 `dsh-workflow-orchestrator` 的版本变更。
+
+格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
+版本号遵循 [语义化版本（SemVer）](https://semver.org/lang/zh-CN/)。
+
+## [Unreleased]
+
+### Added
+
+- 暂无。后续改动请先记录在此节，发布时再归档到对应版本号下。
+
+## [0.1.0] - 2026-11-10
+
+首个公开版本：DSH（DeepSeek Harness）的可视化工作流编排插件。
+
+### Added
+
+- 左侧栏一级页面 **「工作流编排」**：三栏布局（左侧节点面板、中间编排画布、右侧节点属性），底部为执行日志，顶部工具栏提供工作流选择、重命名、执行、终止与保存/运行状态。
+- **任务节点**：每个任务节点在被调度时，通过 DSH 的 Session Controller 新建一个真实的 DSH 任务会话（会出现在对应工作区的任务列表里），并把提示词发送进去。
+- **节点属性面板**：可编辑节点名称、提示词（Enter 只换行、不会启动任务）、上游上下文（带输出 / 带会话摘要 / 完全不传）、工作区、Agent 模式、权限和模型覆盖。
+- **连线与调度语义**：不连线的任务同时启动；`A → B` 表示 A 完成后才启动 B；工作流必须是无环图。
+- **并行网关**：汇合多个分支，所有输入分支完成后才触发网关后面的节点；网关本身不创建任务会话。
+- **失败与跳过语义**：任一前序节点失败或被取消，其下游分支标记为「已跳过」，不相关分支继续执行；工作流整体最终标记为「失败」并记录错误。
+- **执行 / 终止**：终止时支持两种模式——仅停止工作流（运行中的任务继续跑完）或同时终止正在运行的任务会话。
+- **自动保存与持久化**：画布与最近 20 次运行记录保存到 `$DSH_HOME/workflow-orchestrator/workflows.json`，刷新或重启 DSH 后仍在；宿主半区激活标记写入 `$DSH_HOME/workflow-orchestrator/host-loaded.json`。
+- **运行日志**：底部消息窗口按节点显示启动、会话 ID、完成、失败等信息，错误以 ERROR 级别展示。
+- **中英文文案**：`locale/zh.json` 与 `locale/en.json` 提供插件管理器 / 设置页显示的标题与描述。
+- **可直接加载的插件包结构**：`package.json` 的 `dsh.bundle.patch` 与 `dsh.client` 声明、`cordis.patch.yml` 装载行；ESM、运行时零依赖（只通过 Cordis 服务访问 DSH）、无构建步骤。
+- **测试**：`node:test` 单元测试覆盖引擎调度（并行启动、串行等待、网关汇合、失败级联、两种终止模式）以及存储 / 路由（持久化往返、输入清洗、准入拦截、全部 JSON 端点）；隔离环境全链路 E2E 脚本 `tools/e2e-full.cjs`（Playwright + 真实 DSH host + 真实模型，53 项断言）。E2E 的本机配置全部通过环境变量注入（`DSH_BIN`、`DSH_E2E_PLAYWRIGHT_CORE`、`CHROME_PATH`、`DSH_E2E_*` 模型与凭据），仓库不保存本机路径、内网网关或凭据。
+- **工程化**：`npm run check` 同时做包结构自检（`tools/verify-package.mjs`）与文档自检（`tools/check-docs.mjs`：相对链接、行号锚点、Mermaid 块、本机路径与凭据模式）；CI 在 ubuntu-latest / windows-latest × Node.js 20 / 22 上运行。
+
+### Notes
+
+- 首个版本的功能与内部接口仍可能调整；升级前请阅读本文件。
+- 已知限制见 [README.md](README.md) 的「已知限制」一节（只支持并行网关、每个任务节点只执行一次、不支持循环 / 重试 / 定时触发等）。
+
+[Unreleased]: https://github.com/czyt1988/dsh-workflow-orchestrator/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/czyt1988/dsh-workflow-orchestrator/releases/tag/v0.1.0

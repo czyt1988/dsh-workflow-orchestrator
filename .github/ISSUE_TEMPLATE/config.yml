@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 使用讨论（Discussions）
+    url: https://github.com/czyt1988/dsh-workflow-orchestrator/discussions
+    about: 提问、分享工作流用法、交流想法——不适合用 bug 模板的内容请发到这里。
+  - name: 🔒 私密报告安全漏洞（Security）
+    url: https://github.com/czyt1988/dsh-workflow-orchestrator/security/advisories/new
+    about: 安全问题请勿公开披露，按 SECURITY.md 的私密渠道报告。
