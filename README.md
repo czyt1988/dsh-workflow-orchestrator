@@ -33,6 +33,7 @@
 - [目录结构](#目录结构)
 - [本地开发与测试](#本地开发与测试)
 - [已知限制](#已知限制)
+- [Roadmap](#roadmap)
 - [参与贡献](#参与贡献)
 - [License](#license)
 - [English overview](#english-overview)
@@ -280,6 +281,16 @@ E2E 会在隔离的 `DSH_HOME` 中启动 `dsh --profile web`，用 Playwright �
 - 提示词为空的任务节点不允许执行；并行网关必须至少一条输入与一条输出连线。
 - 会话标题由 DSH 根据提示词自动生成，插件不会重命名任务。
 - 已在 DSH 桌面端的 `desktop` / `web` profile 上验证；未声明对 DSH 版本的 peer 依赖，升级 DSH 后请重跑 E2E。
+
+## Roadmap
+
+以下方向欢迎通过 [Issue](https://github.com/czyt1988/dsh-workflow-orchestrator/issues) 讨论或认领（**计划中，不代表承诺**）：
+
+- 条件分支 / 排他网关，以及按上游结果决定走向。
+- 节点级重试、循环与定时触发。
+- 运行历史面板（按时间回看与对比多次运行）。
+- 工作流导出 / 导入（JSON 文件），便于团队共享模板。
+- 界面文案 i18n（当前 UI 为简体中文，`locale/en.json` 已提供插件元数据英文）。
 
 ## 参与贡献
 
