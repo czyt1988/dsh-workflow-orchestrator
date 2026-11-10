@@ -283,3 +283,107 @@ test('upstream context resolves through gateways and honours the mode', () => {
   assert.equal(none, '仅自己的提示词')
   assert.equal(composePrompt({ task: { prompt: 'x', contextMode: 'full' } }, [], 'full'), 'x')
 })
+
+test('run from a middle node executes only its downstream scope', async () => {
+  const started = []
+  const upstreamIds = new Map()
+  const { engine, recorded } = createHarness({
+    executeTask: async ({ node, upstream }) => {
+      started.push(node.id)
+      upstreamIds.set(
+        node.id,
+        upstream.map((entry) => entry.node.id),
+      )
+      await delay(5)
+      return { sessionId: `s-${node.id}`, output: `${node.id} output` }
+    },
+  })
+  const definition = workflow(
+    [task('a', '任务 A'), task('b', '任务 B'), task('c', '任务 C'), task('d', '独立任务 D')],
+    [
+      ['a', 'b'],
+      ['b', 'c'],
+    ],
+  )
+  const snapshot = await engine.start(undefined, definition, { startNodeId: 'b' })
+  assert.equal(snapshot.startNodeId, 'b')
+  assert.equal(snapshot.nodes.a.status, 'not-run')
+  await waitFor(() => recorded.length === 1)
+  const run = recorded[0]
+  assert.equal(run.status, 'completed')
+  assert.deepEqual(started, ['b', 'c'])
+  assert.equal(run.nodes.a.status, 'not-run')
+  assert.equal(run.nodes.d.status, 'not-run')
+  assert.equal(run.nodes.b.status, 'completed')
+  assert.equal(run.nodes.c.status, 'completed')
+  // The pruned predecessor must not leak into the downstream prompt context.
+  assert.deepEqual(upstreamIds.get('b'), [])
+  assert.deepEqual(upstreamIds.get('c'), ['b'])
+  const logText = run.log.map((entry) => entry.message).join('\n')
+  assert.match(logText, /从节点「任务 B」开始执行：跳过 2 个不在下游范围内的节点/)
+})
+
+test('run from one branch ignores pruned gateway inputs', async () => {
+  const started = []
+  const { engine, recorded } = createHarness({
+    executeTask: async ({ node }) => {
+      started.push(node.id)
+      await delay(5)
+      return { sessionId: `s-${node.id}`, output: 'ok' }
+    },
+  })
+  const definition = workflow(
+    [task('a', '任务 A'), task('b', '任务 B'), gateway('gw'), task('c', '任务 C')],
+    [
+      ['a', 'gw'],
+      ['b', 'gw'],
+      ['gw', 'c'],
+    ],
+  )
+  await engine.start(undefined, definition, { startNodeId: 'a' })
+  await waitFor(() => recorded.length === 1)
+  const run = recorded[0]
+  assert.equal(run.status, 'completed')
+  assert.deepEqual(started, ['a', 'c'])
+  assert.equal(run.nodes.b.status, 'not-run')
+  assert.equal(run.nodes.gw.status, 'completed')
+  assert.equal(run.nodes.c.status, 'completed')
+})
+
+test('run from a gateway fans out without waiting for absent inputs', async () => {
+  const started = []
+  const { engine, recorded } = createHarness({
+    executeTask: async ({ node }) => {
+      started.push(node.id)
+      await delay(5)
+      return { sessionId: `s-${node.id}`, output: 'ok' }
+    },
+  })
+  const definition = workflow(
+    [task('a', '任务 A'), gateway('gw'), task('c', '任务 C')],
+    [['gw', 'c']],
+  )
+  assert.deepEqual(validateWorkflow(definition, { startNodeId: 'gw' }), [])
+  await engine.start(undefined, definition, { startNodeId: 'gw' })
+  await waitFor(() => recorded.length === 1)
+  const run = recorded[0]
+  assert.equal(run.status, 'completed')
+  assert.deepEqual(started, ['c'])
+  assert.equal(run.nodes.a.status, 'not-run')
+  assert.equal(run.nodes.gw.status, 'completed')
+})
+
+test('scoped validation only checks the reachable subgraph', () => {
+  const definition = workflow(
+    [task('a', '任务 A', ''), task('b', '任务 B'), task('c', '任务 C')],
+    [
+      ['a', 'b'],
+      ['b', 'c'],
+    ],
+  )
+  assert.match(validateWorkflow(definition).join(';'), /还没有填写提示词/)
+  assert.deepEqual(validateWorkflow(definition, { startNodeId: 'b' }), [])
+  assert.match(validateWorkflow(definition, { startNodeId: 'missing' }).join(';'), /起始节点不存在/)
+  const emptyStart = workflow([task('a', '任务 A', '')], [])
+  assert.match(validateWorkflow(emptyStart, { startNodeId: 'a' }).join(';'), /还没有填写提示词/)
+})

@@ -135,6 +135,70 @@ test('sanitizeWorkflow repairs hostile input', () => {
   assert.deepEqual(workflow.settings, {})
 })
 
+test('sanitizeWorkflow keeps valid workspace colors and drops hostile entries', () => {
+  const workflow = sanitizeWorkflow({
+    id: 'wf-colors',
+    name: '配色',
+    nodes: [],
+    edges: [],
+    settings: {
+      defaultWorkspaceId: 'ws-1',
+      workspaceColors: {
+        'ws-1': '#ABCDEF',
+        'ws-2': '#0f0',
+        'ws-bad': 'red',
+        '': '#123456',
+        'ws-3': 42,
+        'ws-4': '#1234567',
+      },
+    },
+  })
+  assert.deepEqual(workflow.settings, {
+    defaultWorkspaceId: 'ws-1',
+    workspaceColors: { 'ws-1': '#abcdef', 'ws-2': '#00ff00' },
+  })
+  const many = {}
+  for (let index = 0; index < 50; index += 1) many[`ws-${index}`] = '#112233'
+  const limited = sanitizeWorkflow({ name: '上限', settings: { workspaceColors: many } })
+  assert.equal(Object.keys(limited.settings.workspaceColors).length, 40)
+})
+
+test('run history keeps the start node and not-run statuses', async () => {
+  await withTempDir(async (dir) => {
+    const store = new WorkflowStore(fakeCtx(dir))
+    await store.ready()
+    const saved = store.save({
+      name: '范围运行',
+      nodes: [
+        { id: 'a', type: 'task', title: '任务 A', x: 0, y: 0, task: { prompt: 'a' } },
+        { id: 'b', type: 'task', title: '任务 B', x: 200, y: 0, task: { prompt: 'b' } },
+      ],
+      edges: [],
+    })
+    store.recordRun({
+      id: 'run-scope',
+      workflowId: saved.id,
+      workflowName: saved.name,
+      startNodeId: 'b',
+      status: 'completed',
+      startedAt: 1,
+      endedAt: 2,
+      nodes: {
+        a: { id: 'a', title: '任务 A', type: 'task', status: 'not-run' },
+        b: { id: 'b', title: '任务 B', type: 'task', status: 'completed', output: 'ok' },
+      },
+      log: [],
+    })
+    await store.persist()
+    const reloaded = new WorkflowStore(fakeCtx(dir))
+    await reloaded.ready()
+    const run = reloaded.runs()[0]
+    assert.equal(run.startNodeId, 'b')
+    assert.equal(run.nodes.a.status, 'not-run')
+    assert.equal(run.nodes.b.status, 'completed')
+  })
+})
+
 test('routes answer state, create, save, run, stop and enforce admission', async () => {
   await withTempDir(async (dir) => {
     const store = new WorkflowStore(fakeCtx(dir))
@@ -156,9 +220,9 @@ test('routes answer state, create, save, run, stop and enforce admission', async
       getRun() {
         return undefined
       },
-      async start(workflowId, workflow) {
-        started.push({ workflowId, workflow })
-        return { id: 'run-x', workflowId, status: 'running', log: [], nodes: {} }
+      async start(workflowId, workflow, options) {
+        started.push({ workflowId, workflow, options })
+        return { id: 'run-x', workflowId, status: 'running', startNodeId: options?.startNodeId ?? null, log: [], nodes: {} }
       },
       stop() {
         return { id: 'run-x', workflowId: 'wf', status: 'cancelled', log: [], nodes: {} }
@@ -216,6 +280,16 @@ test('routes answer state, create, save, run, stop and enforce admission', async
     assert.equal(run.payload.value.run.id, 'run-x')
     assert.equal(started.length, 1)
     assert.equal(started[0].workflowId, workflowId)
+    assert.equal(started[0].options?.startNodeId, undefined)
+
+    const scoped = await call('POST', '/api/run', { workflowId, startNodeId: 'node-a' })
+    assert.equal(scoped.status, 200)
+    assert.equal(scoped.payload.value.run.startNodeId, 'node-a')
+    assert.equal(started[1].options.startNodeId, 'node-a')
+    const invalidStart = await call('POST', '/api/run', { workflowId, startNodeId: 42 })
+    assert.equal(invalidStart.status, 400)
+    assert.match(invalidStart.payload.error.message, /起始节点 ID 无效/)
+    assert.equal(started.length, 2)
 
     const stop = await call('POST', '/api/stop', { runId: 'run-x', cancelTasks: true })
     assert.equal(stop.status, 200)

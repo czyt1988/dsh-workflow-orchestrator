@@ -631,6 +631,92 @@ async function stopDialogOptions() {
   })
 }
 
+/** Default canvas palette defined by the design contract (client side). */
+const PANEL_PALETTE = ['#2563eb', '#16a34a', '#d97706', '#7c3aed', '#db2777', '#0891b2', '#ca8a04', '#dc2626']
+
+/** `#rrggbb` -> the `rgb(r, g, b)` form Chrome uses when serializing computed colors. */
+function rgbCss(hex) {
+  const value = Number.parseInt(hex.slice(1), 16)
+  return `rgb(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255})`
+}
+
+/** Task/gateway cards: workspace row, inline colors, status classes and computed colors. */
+async function canvasNodeDetails() {
+  return page.evaluate(() =>
+    [...document.querySelectorAll('.wfo-node')].map((node) => {
+      const row = node.querySelector('.wfo-node-workspace')
+      const dot = node.querySelector('.wfo-node-ws-dot')
+      const tag = node.querySelector('.wfo-node-ws-tag')
+      const computed = getComputedStyle(node)
+      return {
+        cls: node.className,
+        isGateway: node.classList.contains('gateway'),
+        hasWorkspaceRow: row !== null,
+        emptyRow: row === null ? null : row.classList.contains('empty'),
+        workspaceName: row?.querySelector('.wfo-node-ws-name')?.textContent ?? null,
+        workspaceDot: dot === null ? null : getComputedStyle(dot).backgroundColor,
+        workspaceTag: tag?.textContent ?? null,
+        workspaceTitle: row?.getAttribute('title') ?? null,
+        background: computed.backgroundColor,
+        borderColor: computed.borderTopColor,
+        borderStyle: computed.borderTopStyle,
+        opacity: computed.opacity,
+        status: node.querySelector('.wfo-node-status')?.textContent ?? '',
+      }
+    }),
+  )
+}
+
+/** The inspector's 「节点工作区配色」 rows. */
+async function workspaceColorRows() {
+  return page.evaluate(() =>
+    [...document.querySelectorAll('.wfo-ws-colors .wfo-ws-color-row')].map((row) => ({
+      dot: getComputedStyle(row.querySelector('.wfo-ws-color-dot')).backgroundColor,
+      name: row.querySelector('.wfo-ws-color-name')?.textContent ?? '',
+      count: row.querySelector('.wfo-ws-count')?.textContent ?? '',
+      inputValue: row.querySelector('input[type=color]')?.value ?? null,
+      hasReset: [...row.querySelectorAll('button')].some((button) => button.innerText.trim() === '恢复默认'),
+    })),
+  )
+}
+
+/** Every banner (notice / cross-workspace warning / catalog error). */
+async function bannerTexts() {
+  return page.evaluate(() =>
+    [...document.querySelectorAll('.wfo-banner')].map((banner) => ({ cls: banner.className, text: banner.innerText })),
+  )
+}
+
+/** Deselect the current node by clicking an empty spot of the canvas. */
+async function clickBlankCanvas() {
+  const box = await page.locator('.wfo-canvas-wrap').boundingBox()
+  await page.mouse.click(box.x + 14, box.y + 14)
+  await page.waitForTimeout(500)
+}
+
+/** Move the pointer off interactive controls so screenshots show resting styles. */
+async function parkMouse() {
+  await page.mouse.move(4, 4)
+  await page.waitForTimeout(350)
+}
+
+/** Drive the native color input like a user would (Playwright fill, DOM fallback). */
+async function setWorkspaceColorInput(index, hex) {
+  const input = page.locator('.wfo-ws-colors .wfo-ws-color-row input[type=color]').nth(index)
+  await input.waitFor({ state: 'visible', timeout: 10000 })
+  try {
+    await input.fill(hex, { timeout: 3000 })
+  } catch {
+    await input.evaluate((element, value) => {
+      const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+      descriptor.set.call(element, value)
+      element.dispatchEvent(new Event('input', { bubbles: true }))
+      element.dispatchEvent(new Event('change', { bubbles: true }))
+    }, hex)
+  }
+  await page.waitForTimeout(600)
+}
+
 // ---------------------------------------------------------------------------
 // scenarios
 // ---------------------------------------------------------------------------
@@ -1027,6 +1113,255 @@ async function scenarioFailure() {
   check('10-failure', '工作流整体标记为失败', run.status === 'failed' && pill === '失败', { status: run.status, pill })
 }
 
+async function scenarioWorkspaceColors() {
+  const activeId = await createNewWorkflow()
+  await dragPaletteAndVerify(0, await canvasPoint(0.16, 0.18))
+  await dragPaletteAndVerify(0, await canvasPoint(0.16, 0.66))
+  await setPromptForNode(0, PROMPT_SHORT)
+  await setPromptForNode(1, PROMPT_SHORT)
+  let workflow = await waitSaved(
+    activeId,
+    (state) => state.nodes.length === 2 && state.nodes.every((node) => node.task?.prompt === PROMPT_SHORT),
+    'workspace prompts',
+  )
+
+  const state = await apiState()
+  const catalogs = state.catalogs ?? {}
+  const workspaces = Array.isArray(catalogs.workspaces) ? catalogs.workspaces : []
+  const defaultWorkspaceId = catalogs.defaults?.workspaceId ?? workflow.settings?.defaultWorkspaceId ?? null
+  const hostSecond = workspaces.find((workspace) => workspace.id !== defaultWorkspaceId) ?? null
+  // The isolated host may only expose the default workspace. In that case the
+  // second id is synthetic and the report must say so; it is still written and
+  // read through the real store/API and rendered by the real UI.
+  const realHostWorkspace = hostSecond !== null
+  const secondWorkspaceId = hostSecond !== null ? hostSecond.id : 'e2e-workspace-2'
+  const secondWorkspaceTitle =
+    hostSecond !== null ? hostSecond.title || hostSecond.path || hostSecond.id : secondWorkspaceId
+
+  // Write the explicit workspace id through the real save API, then refresh.
+  // Newly created task nodes carry the catalog default as an explicit
+  // workspaceId; drop it on the first node so it exercises the inherited case.
+  workflow = JSON.parse(JSON.stringify(workflow))
+  delete workflow.nodes[0].task.workspaceId
+  workflow.nodes[1].task = { ...(workflow.nodes[1].task ?? {}), workspaceId: secondWorkspaceId }
+  const savedWorkflow = (await api('POST', 'save', { workflow })).workflow
+  check('12-workspace', '通过保存 API 写入第二个节点工作区 id（隔离宿主可用工作区不足时为合成 id）',
+    savedWorkflow.nodes[1].task.workspaceId === secondWorkspaceId,
+    { realHostWorkspace, secondWorkspaceId, availableWorkspaces: workspaces.map((workspace) => workspace.id) })
+  await clickToolbar('刷新')
+  // The refresh GET can resolve late under load; wait until the cards really
+  // render the two distinct workspace ids instead of relying on a fixed sleep.
+  await waitFor(async () => {
+    const snapshot = await canvasNodeDetails()
+    const rendered = snapshot.filter((entry) => !entry.isGateway)
+    const names = new Set(rendered.map((entry) => entry.workspaceName))
+    return rendered.length === 2 && names.size === 2 && names.has(secondWorkspaceId) ? snapshot : null
+  }, 30000, 300, 'panel refresh with two workspace ids')
+  await clickBlankCanvas()
+  const details = await canvasNodeDetails()
+
+  const tasks = details.filter((entry) => !entry.isGateway)
+  check('12-workspace', '默认工作区节点卡片出现工作区行与颜色块',
+    tasks.length === 2 && tasks[0].hasWorkspaceRow && tasks[0].emptyRow === false &&
+      tasks[0].workspaceName !== null && tasks[0].workspaceDot !== null,
+    { tasks: tasks.map((entry) => ({ name: entry.workspaceName, dot: entry.workspaceDot })) })
+  check('12-workspace', '继承工作流默认工作区的节点显示「默认」标记，显式指定节点不显示',
+    tasks[0].workspaceTag === '默认' && tasks[1].workspaceTag === null,
+    { first: tasks[0].workspaceTag, second: tasks[1].workspaceTag })
+  check('12-workspace', '工作区行 title 说明「继承工作流默认」与「节点指定」',
+    /工作区：.*（继承工作流默认）/.test(tasks[0].workspaceTitle ?? '') &&
+      /工作区：.*（节点指定）/.test(tasks[1].workspaceTitle ?? ''),
+    [tasks[0].workspaceTitle, tasks[1].workspaceTitle])
+  check('12-workspace', '两个工作区颜色块使用不同默认调色板颜色',
+    tasks[0].workspaceDot === rgbCss(PANEL_PALETTE[0]) && tasks[1].workspaceDot === rgbCss(PANEL_PALETTE[1]),
+    { first: tasks[0].workspaceDot, second: tasks[1].workspaceDot, palette: PANEL_PALETTE.slice(0, 2) })
+  check('12-workspace', '节点卡片背景色按工作区区分（不同且非透明）',
+    tasks[0].background !== tasks[1].background &&
+      tasks[0].background !== 'rgba(0, 0, 0, 0)' && tasks[1].background !== 'rgba(0, 0, 0, 0)',
+    { first: tasks[0].background, second: tasks[1].background })
+  check('12-workspace', '卡片边框颜色不随工作区变化（边框仍只表达运行状态）',
+    tasks[0].borderColor === tasks[1].borderColor && tasks[0].borderStyle === 'solid',
+    { first: { color: tasks[0].borderColor, style: tasks[0].borderStyle }, second: { color: tasks[1].borderColor, style: tasks[1].borderStyle } })
+
+  const banners = await bannerTexts()
+  const warn = banners.find((entry) => entry.cls.includes('warn'))
+  check('12-workspace', '工具栏下方出现跨工作区 warn 提示条',
+    warn !== undefined && warn.text.includes('当前工作流跨 2 个工作区') &&
+      warn.text.includes('节点卡片已用不同背景色区分') && warn.text.includes(secondWorkspaceTitle),
+    warn)
+  check('12-workspace', '跨工作区提示条不阻塞执行（执行按钮仍可用）',
+    await page.evaluate(() => {
+      const button = [...document.querySelectorAll('.wfo-toolbar button')].find((entry) => entry.innerText.trim() === '执行')
+      return button !== undefined && button.disabled === false
+    }),
+    'toolbar 执行 enabled')
+
+  const colorRows = await workspaceColorRows()
+  const inspectorText = await page.evaluate(() => document.querySelector('.wfo-inspector')?.innerText ?? '')
+  check('12-workspace', '属性区「节点工作区配色」列出两个工作区（颜色块 + 标题 + 节点数 + 取色器）',
+    colorRows.length === 2 && colorRows.every((row) => row.inputValue !== null) &&
+      colorRows[0].count === '1 个节点' && colorRows[1].count === '1 个节点',
+    colorRows)
+  check('12-workspace', '工作区配色 hint 说明背景色只用于区分、边框仍表示运行状态',
+    inspectorText.includes('节点工作区配色') &&
+      inspectorText.includes('背景色仅用于画布区分，不改变任务会话所属工作区；卡片边框仍表示运行状态。'),
+    inspectorText.slice(0, 600))
+
+  const beforeOverrideBackground = tasks[1].background
+  await setWorkspaceColorInput(1, '#123456')
+  const persisted = await waitSaved(
+    activeId,
+    (entry) => entry.settings?.workspaceColors?.[secondWorkspaceId] === '#123456',
+    'workspace color override',
+  )
+  const afterOverride = (await canvasNodeDetails()).filter((entry) => !entry.isGateway)
+  const colorRowsAfter = await workspaceColorRows()
+  check('12-workspace', '修改工作区配色后自动保存并持久化 #123456',
+    persisted.settings.workspaceColors[secondWorkspaceId] === '#123456',
+    persisted.settings.workspaceColors)
+  check('12-workspace', '修改后卡片背景色与颜色块即时更新，未修改的工作区保持原色',
+    afterOverride[1].workspaceDot === rgbCss('#123456') &&
+      afterOverride[1].background !== beforeOverrideBackground &&
+      afterOverride[0].background === tasks[0].background,
+    { changed: afterOverride[1].background, unchanged: afterOverride[0].background, dot: afterOverride[1].workspaceDot })
+  check('12-workspace', '已覆盖的工作区显示「恢复默认」按钮，未覆盖的不显示',
+    colorRowsAfter[1].hasReset === true && colorRowsAfter[0].hasReset === false,
+    colorRowsAfter)
+  await parkMouse()
+  await screenshot('23-workspace-colors')
+  writeEvidence('23-workspace-colors', { realHostWorkspace, secondWorkspaceId, details, colorRowsAfter, banners, persisted: persisted.settings })
+
+  // Selecting a task shows the cross-workspace sentence in the 工作区 field hint.
+  await clickNode(1)
+  const inspectorTaskText = await page.evaluate(() => document.querySelector('.wfo-inspector')?.innerText ?? '')
+  check('12-workspace', '选中任务节点时「工作区」hint 追加跨工作区说明',
+    inspectorTaskText.includes('当前工作流涉及 2 个工作区，卡片背景色用于区分。'),
+    inspectorTaskText.split('\n').filter((line) => line.includes('工作区')).slice(0, 6))
+
+  // Reset the override and confirm the palette color comes back.
+  await clickBlankCanvas()
+  const resetRow = (await workspaceColorRows()).findIndex((row) => row.hasReset)
+  await page.locator('.wfo-ws-colors .wfo-ws-color-row').nth(resetRow).getByRole('button', { name: '恢复默认' }).click()
+  await waitSaved(
+    activeId,
+    (entry) => entry.settings?.workspaceColors === undefined || entry.settings.workspaceColors[secondWorkspaceId] === undefined,
+    'workspace color reset',
+  )
+  await page.waitForTimeout(700)
+  const resetRows = await workspaceColorRows()
+  const resetDetails = (await canvasNodeDetails()).filter((entry) => !entry.isGateway)
+  check('12-workspace', '「恢复默认」删除覆盖并回到默认调色板颜色',
+    resetRows.every((row) => row.hasReset === false) &&
+      resetDetails[1].workspaceDot === rgbCss(PANEL_PALETTE[1]) &&
+      resetDetails[1].background !== afterOverride[1].background,
+    { rows: resetRows, dot: resetDetails[1].workspaceDot })
+  return { activeId, realHostWorkspace, secondWorkspaceId, workspaceCount: workspaces.length }
+}
+
+async function scenarioRunFromNode() {
+  const activeId = await createNewWorkflow()
+  await dragPaletteAndVerify(0, await canvasPoint(0.14, 0.16))
+  await dragPaletteAndVerify(0, await canvasPoint(0.45, 0.44))
+  await dragPaletteAndVerify(0, await canvasPoint(0.78, 0.72))
+  await connectNodes(0, 1)
+  await connectNodes(1, 2)
+  let workflow = await waitSaved(activeId, (state) => state.nodes.length === 3 && state.edges.length === 2, 'range chain')
+
+  // With an empty prompt the "run from this node" button must be disabled.
+  await clickNode(0)
+  const emptyButton = await page
+    .locator('.wfo-inspector .wfo-start-here button')
+    .evaluate((element) => ({ text: element.innerText.trim(), disabled: element.disabled, title: element.title }))
+  check('13-run-from-node', '提示词为空时「从此节点开始执行」禁用并说明原因',
+    emptyButton.text === '从此节点开始执行' && emptyButton.disabled === true &&
+      emptyButton.title.includes('还没有填写提示词'),
+    emptyButton)
+
+  await setPromptForNode(0, PROMPT_SHORT)
+  await setPromptForNode(1, PROMPT_SHORT)
+  await setPromptForNode(2, PROMPT_SHORT)
+  workflow = await waitSaved(
+    activeId,
+    (state) => state.nodes.length === 3 && state.nodes.every((node) => node.task?.prompt === PROMPT_SHORT),
+    'range prompts',
+  )
+  const nodeIds = workflow.nodes.map((node) => node.id)
+
+  await clickNode(1)
+  const button = page.locator('.wfo-inspector .wfo-start-here button')
+  await button.waitFor({ state: 'visible', timeout: 10000 })
+  const buttonState = await button.evaluate((element) => ({
+    text: element.innerText.trim(),
+    disabled: element.disabled,
+    title: element.title,
+  }))
+  const inspectorOrder = await page.evaluate(() => {
+    const inspector = document.querySelector('.wfo-inspector')
+    return [...inspector.children].map((child) => child.className)
+  })
+  check('13-run-from-node', '属性区最顶部（标题行下方、节点名称之前）出现「从此节点开始执行」按钮',
+    buttonState.text === '从此节点开始执行' && buttonState.disabled === false &&
+      /跳过该节点之前的所有节点，从该节点及其下游开始执行/.test(buttonState.title) &&
+      inspectorOrder[0] === 'wfo-insp-head' && inspectorOrder[1] === 'wfo-start-here',
+    { buttonState, inspectorOrder: inspectorOrder.slice(0, 5) })
+
+  const sessionsBefore = sessionFiles()
+  await button.click()
+  const startNotice = await waitFor(async () => {
+    const banners = await bannerTexts()
+    return banners.find((entry) => entry.text.includes(`已从「${workflow.nodes[1].title}」开始执行`)) ?? null
+  }, 20000, 200, 'run-from-node notice')
+  check('13-run-from-node', '点击后提示「已从「任务 2」开始执行」', startNotice !== null, startNotice)
+
+  const run = await waitTerminalRun(activeId, 300000)
+  await page.waitForTimeout(1800)
+  const sessionsAfter = sessionFiles()
+  const newSessions = sessionsAfter.filter((file) => !sessionsBefore.includes(file))
+  const log = await logText()
+  const canvas = await canvasNodes()
+  const details = await canvasNodeDetails()
+  const inspectorText = await page.evaluate(() => document.querySelector('.wfo-inspector')?.innerText ?? '')
+  await parkMouse()
+  await screenshot('24-run-from-node')
+  writeEvidence('24-run-from-node', {
+    run,
+    log,
+    canvas,
+    details,
+    inspectorText,
+    newSessions: newSessions.map((file) => path.relative(HOME, file)),
+    startNotice,
+    buttonState,
+  })
+
+  const stateOf = (id) => run.nodes?.[id]
+  const a = stateOf(nodeIds[0])
+  const b = stateOf(nodeIds[1])
+  const c = stateOf(nodeIds[2])
+  check('13-run-from-node', '运行记录带 startNodeId，且只执行 B、C（A 未执行）',
+    run.startNodeId === nodeIds[1] && a?.status === 'not-run' && b?.status === 'completed' && c?.status === 'completed',
+    { startNodeId: run.startNodeId, statuses: { a: a?.status, b: b?.status, c: c?.status } })
+  check('13-run-from-node', '画布状态：A 显示「未执行」，B/C 显示「已完成」',
+    canvas.length === 3 && canvas[0].status === '未执行' && canvas[1].status === '已完成' && canvas[2].status === '已完成',
+    canvas.map((node) => ({ status: node.status, cls: node.cls })))
+  check('13-run-from-node', '未执行卡片虚线边框并弱化显示',
+    details[0].borderStyle === 'dashed' && Number(details[0].opacity) < 0.7 && details[1].borderStyle !== 'dashed',
+    { a: { borderStyle: details[0].borderStyle, opacity: details[0].opacity }, b: { borderStyle: details[1].borderStyle, opacity: details[1].opacity } })
+  check('13-run-from-node', '未执行节点没有创建任务会话（只有 B、C 两个新会话）',
+    a?.sessionId === null && newSessions.length === 2,
+    { aSessionId: a?.sessionId, newSessions: newSessions.map((file) => path.relative(HOME, file)) })
+  check('13-run-from-node', '启动日志记录从节点开始执行及跳过数量',
+    log.includes(`从节点「${workflow.nodes[1].title}」开始执行：跳过 1 个不在下游范围内的节点`),
+    log.split('\n').filter((line) => line.includes('从节点')))
+  check('13-run-from-node', '运行卡片「执行范围」显示从起始节点开始（跳过 1 个节点）',
+    inspectorText.includes('执行范围') && inspectorText.includes(`从「${workflow.nodes[1].title}」开始（跳过 1 个节点）`),
+    inspectorText.split('\n').filter((line) => line.includes('执行范围') || line.includes('跳过')).slice(0, 6))
+  check('13-run-from-node', '范围运行整体 completed，A 没有开始/结束时间',
+    run.status === 'completed' && a?.startedAt === null && a?.endedAt === null,
+    { status: run.status, aStartedAt: a?.startedAt, aEndedAt: a?.endedAt })
+  return { activeId, run }
+}
+
 async function scenarioConsole() {
   writeText('99-console.txt', JSON.stringify({ pageErrors, consoleErrors }, null, 2))
   check('11-console', '无 pageerror', pageErrors.length === 0, pageErrors)
@@ -1041,7 +1376,17 @@ function renderReport(extra) {
   const failed = checks.filter((entry) => !entry.pass)
   const summary = {
     generatedAt: nowIso(),
-    environment: { home: HOME, profile: PROFILE, serverPort, url: extra.url ?? null, plugin: 'dsh-workflow-orchestrator' },
+    environment: {
+      home: HOME,
+      profile: PROFILE,
+      serverPort,
+      url: extra.url ?? null,
+      plugin: 'dsh-workflow-orchestrator',
+      // Transparency: the isolated host may only expose the default workspace.
+      // The multi-workspace scenario then uses a synthetic workspace id written
+      // through the real save API — reported here, never passed off as a real host workspace.
+      workspaceScenario: extra.workspaceScenario ?? null,
+    },
     totals: { checks: checks.length, passed: checks.length - failed.length, failed: failed.length },
     failures: failed,
     checks,
@@ -1057,6 +1402,16 @@ function renderReport(extra) {
   lines.push(`- 隔离 home：\`${HOME}\``)
   lines.push(`- 测试 host：\`dsh --profile web --port ${serverPort}\`（由脚本管理生命周期）`)
   lines.push(`- 断言：${summary.totals.passed}/${summary.totals.checks} 通过，${summary.totals.failed} 失败`)
+  if (extra.workspaceScenario !== undefined && extra.workspaceScenario !== null) {
+    const space = extra.workspaceScenario
+    lines.push(
+      `- 多工作区场景：隔离宿主可用工作区 ${space.workspaceCount} 个；第二个工作区 id \`${space.secondWorkspaceId}\` ${
+        space.realHostWorkspace
+          ? '是真实宿主工作区'
+          : '是合成 id（通过真实保存 API 写入、由真实 UI 渲染与持久化，但并非宿主真实工作区）'
+      }。`,
+    )
+  }
   lines.push('')
   lines.push('## 逐项结果')
   lines.push('')
@@ -1114,10 +1469,14 @@ function renderReport(extra) {
     await scenarioStopCancel()
     step('failure')
     await scenarioFailure()
+    step('workspace-colors')
+    const workspaceScenario = await scenarioWorkspaceColors()
+    step('run-from-node')
+    await scenarioRunFromNode()
     step('console')
     await scenarioConsole()
 
-    const summary = renderReport({ url })
+    const summary = renderReport({ url, workspaceScenario })
     console.log(`\nE2E done: ${summary.totals.passed}/${summary.totals.checks} checks passed, ${summary.totals.failed} failed`)
     console.log(`report: ${path.join(OUT, 'e2e-report.md')}`)
     for (const failure of summary.failures) console.log(`FAILED: ${failure.group} / ${failure.name} :: ${JSON.stringify(failure.detail)}`)
