@@ -87,9 +87,9 @@ flowchart TB
 | --- | --- | --- |
 | `webServer` | [`lib/index.js:59`](../../lib/index.js#L59) | 以前缀方式挂载 `/workflow-orchestrator`，返回 `dispose` |
 | `connection` | [`lib/host/routes.js:75`](../../lib/host/routes.js#L75) | `requestRejection(req)` 准入栅栏，复用宿主的浏览器信任判定 |
-| `sessions` | [`lib/host/engine.js:828`](../../lib/host/engine.js#L828) | 按会话 ID 取实时会话，读取事件与消息 |
-| `agents` | [`lib/host/engine.js:1026`](../../lib/host/engine.js#L1026) | 读取 Agent 运行状态，判断「空闲」、轮次边界与超时 |
-| `sessionController` | [`lib/host/engine.js:821`](../../lib/host/engine.js#L821)、[`:833`](../../lib/host/engine.js#L849)、[`:846`](../../lib/host/engine.js#L862)、[`:913`](../../lib/host/engine.js#L950) | 创建真实任务会话、选择模型、投递提示词、取消会话 |
+| `sessions` | [`lib/host/engine.js:949`](../../lib/host/engine.js#L949) | 按会话 ID 取实时会话，读取事件与消息 |
+| `agents` | [`lib/host/engine.js:1220`](../../lib/host/engine.js#L1220) | 读取 Agent 运行状态，判断「空闲」、轮次边界与超时 |
+| `sessionController` | [`lib/host/engine.js:942`](../../lib/host/engine.js#L942)、[`:969`](../../lib/host/engine.js#L970)、[`:982`](../../lib/host/engine.js#L983)、[`:1138`](../../lib/host/engine.js#L1139) | 创建真实任务会话、选择模型、投递提示词、取消会话 |
 
 ### 2.3 按需读取的服务
 
@@ -97,8 +97,9 @@ flowchart TB
 
 | 服务 | 读取点 | 缺失时的行为 |
 | --- | --- | --- |
-| `permissionPresets` | [`lib/host/engine.js:834`](../../lib/host/engine.js#L834)、[`lib/host/catalogs.js:148`](../../lib/host/catalogs.js#L148) | 应用权限预设失败只记 `warn`，沿用会话默认权限 |
-| `subagents` | [`lib/host/engine.js:988`](../../lib/host/engine.js#L988) | 不等待后台子代理，完成判定退化为「第一个结束轮次」；`waitForChildren` 抛错时同样降级 |
+| `permissionPresets` | [`lib/host/engine.js:952`](../../lib/host/engine.js#L952)、[`lib/host/catalogs.js:148`](../../lib/host/catalogs.js#L148) | 应用权限预设失败只记 `warn`，沿用会话默认权限 |
+| `subagents` | [`lib/host/engine.js:1181`](../../lib/host/engine.js#L1181) | 不等待后台子代理，完成判定退化为「第一个结束轮次」；`waitForChildren` 抛错时同样降级 |
+| `sessionProjections` | [`lib/host/engine.js:372`](../../lib/host/engine.js#L372) | 感知不到限时提问超时后「仍可回答」的提问，等待用户回复的判定只剩前台等待信号，节点可能在用户回答前提前完成；记 `WARN`（每个节点一次） |
 | `dshHomePath` | [`lib/index.js:27`](../../lib/index.js#L27)、[`lib/host/store.js:31`](../../lib/host/store.js#L31) | 回退到环境变量 `DSH_HOME`，再回退到 `~/.dsh` |
 | `workspaceRegistry` | [`lib/host/catalogs.js:146`](../../lib/host/catalogs.js#L146) | 工作区列表为空，`problems` 里记录 `workspaces` 失败 |
 | `agentPresets` | [`lib/host/catalogs.js:147`](../../lib/host/catalogs.js#L147) | 「模式」下拉为空，默认模式缺失 |
@@ -175,8 +176,8 @@ sequenceDiagram
 ### 5.2 执行
 
 - 点击「执行」：先 `flushSave()`，再 `POST /api/run`，请求体同时带 `workflowId` 与当前画布快照 `workflow`（[`lib/client.js:977`](../../lib/client.js#L977)）。
-- 点击「从此节点开始执行」：走同一个 `startRun()`，请求体额外带 `startNodeId`（[`lib/client.js:977`](../../lib/client.js#L977)）；宿主只调度该节点及其下游可达子图，范围外节点在调度开始前写为 `not-run`（[`lib/host/engine.js:371`](../../lib/host/engine.js#L371)、[`:565`](../../lib/host/engine.js#L587)）。
-- 宿主侧 `engine.start()` 会**用提交的覆盖版本先保存一次**，然后校验、建运行记录、异步调度（[`lib/host/engine.js:371`](../../lib/host/engine.js#L371)）。
+- 点击「从此节点开始执行」：走同一个 `startRun()`，请求体额外带 `startNodeId`（[`lib/client.js:977`](../../lib/client.js#L977)）；宿主只调度该节点及其下游可达子图，范围外节点在调度开始前写为 `not-run`（[`lib/host/engine.js:491`](../../lib/host/engine.js#L491)、[`:705`](../../lib/host/engine.js#L706)）。
+- 宿主侧 `engine.start()` 会**用提交的覆盖版本先保存一次**，然后校验、建运行记录、异步调度（[`lib/host/engine.js:491`](../../lib/host/engine.js#L491)）。
 - 终止：`POST /api/stop`，带 `runId` 与 `cancelTasks`（[`lib/client.js:1001`](../../lib/client.js#L1001)）。
 
 ### 5.3 轮询
@@ -195,7 +196,7 @@ sequenceDiagram
 
 | 场景 | 行为 |
 | --- | --- |
-| 插件卸载 | 注销 Web 路由（[`lib/index.js:58`](../../lib/index.js#L58)）；`engine.dispose()` 对未停止的运行发起 `cancel-tasks` 停止（[`lib/host/engine.js:472`](../../lib/host/engine.js#L472)） |
+| 插件卸载 | 注销 Web 路由（[`lib/index.js:58`](../../lib/index.js#L58)）；`engine.dispose()` 对未停止的运行发起 `cancel-tasks` 停止（[`lib/host/engine.js:593`](../../lib/host/engine.js#L593)） |
 | 页面关闭 / 组件卸载 | 清除保存定时器、轮询定时器；槽位声明由插件效应统一释放（[`lib/client.js:1895`](../../lib/client.js#L1895)） |
 | 路由内业务异常 | 统一 `400 workflow-error`（[`lib/host/routes.js:186`](../../lib/host/routes.js#L186)） |
 | 选项目录失败 | `buildState` 用空目录 + `problems` 兜底（[`lib/host/routes.js:52`](../../lib/host/routes.js#L52)）；面板在无工作区时显示横幅提示（[`lib/client.js:1813`](../../lib/client.js#L1813)） |
@@ -207,8 +208,8 @@ sequenceDiagram
 
 - `ctx.webServer.register({ kind: 'prefix', ... })` 的返回是否始终可调用。
 - `connection.requestRejection(req)` 的签名与返回值语义。
-- `sessionController.create / selectModel / prompt / cancel` 的参数形状；其中 `prompt` 使用 `mode: 'queue'` 与 `AbortSignal`（[`lib/host/engine.js:862`](../../lib/host/engine.js#L862)）。
-- 会话事件 `turn/start`、`turn/end` 与 `turn/end.data.reason` 的结构（[`lib/host/engine.js:270`](../../lib/host/engine.js#L270)）；后台子代理依赖的可选服务 `subagents.waitForChildren(agent)` / `drainDescendants(agents)` 也属于宿主契约，缺失时自动降级。
+- `sessionController.create / selectModel / prompt / cancel` 的参数形状；其中 `prompt` 使用 `mode: 'queue'` 与 `AbortSignal`（[`lib/host/engine.js:983`](../../lib/host/engine.js#L983)）。
+- 会话事件 `turn/start`、`turn/end` 与 `turn/end.data.reason` 的结构（[`lib/host/engine.js:390`](../../lib/host/engine.js#L390)）；后台子代理依赖的可选服务 `subagents.waitForChildren(agent)` / `drainDescendants(agents)` 也属于宿主契约，缺失时自动降级。
 - Web 壳层 slot 名称 `main` 与 `sidebar.panellist`（[`lib/client.js:1881`](../../lib/client.js#L1881)）。
 
 遇到升级后行为异常，先核对以上几处，再检查宿主日志里是否有 `workflow-orchestrator:` 前缀的输出。

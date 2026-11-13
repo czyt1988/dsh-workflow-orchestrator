@@ -132,7 +132,7 @@ flowchart LR
 | 权限/模型没生效 | 运行日志里的 `warn` | 权限预设或模型选择失败，插件已降级沿用默认值 |
 | E2E 起不来 | 端口占用、Chrome 路径、`playwright-core` 路径、凭据文件 | 脚本顶部常量是**本机路径**，换机器要改；用 `--port` 换端口 |
 
-日志统一前缀 `workflow-orchestrator:`（[`lib/host/engine.js:357`](../../lib/host/engine.js#L357)、[`lib/host/store.js:241`](../../lib/host/store.js#L241)），在 DSH 日志里直接搜这个前缀即可。
+日志统一前缀 `workflow-orchestrator:`（[`lib/host/engine.js:477`](../../lib/host/engine.js#L477)、[`lib/host/store.js:241`](../../lib/host/store.js#L241)），在 DSH 日志里直接搜这个前缀即可。
 
 ## 6. 编码约定
 

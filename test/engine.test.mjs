@@ -5,7 +5,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { WorkflowEngine, validateWorkflow, composePrompt, upstreamTaskNodes, parseJudgeDecision } from '../lib/host/engine.js'
+import { WorkflowEngine, validateWorkflow, composePrompt, upstreamTaskNodes, parseJudgeDecision, pendingUserQuestions } from '../lib/host/engine.js'
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -700,13 +700,15 @@ function fakeSession(id) {
   return session
 }
 
-function createTurnHarness({ session, agent, subagents }) {
+function createTurnHarness({ session, agent, subagents, sessionProjections }) {
   const listeners = new Set()
   const cancelled = []
   const ctx = {
     logger: { info() {}, warn() {} },
     get(name) {
-      return name === 'subagents' ? subagents : undefined
+      if (name === 'subagents') return subagents
+      if (name === 'sessionProjections') return sessionProjections
+      return undefined
     },
     on(name, handler) {
       if (name !== 'session/event') return () => {}
@@ -940,4 +942,230 @@ test('cancel-tasks rejects a task waiting for background subagents', { timeout: 
   assert.match(failure.message, /任务已被终止/)
   assert.deepEqual(cancelled, [agent.id])
   assert.deepEqual(drained, [agent.id])
+})
+
+// ---------------------------------------------------------------------------
+// waitForTurn：等待用户回复
+// ---------------------------------------------------------------------------
+
+/** One ask_user_question tool call event with a single-question batch. */
+function askCallEvent(callId, question) {
+  return {
+    callId,
+    name: 'ask_user_question',
+    arguments: JSON.stringify({ questions: [{ id: 'q1', question, header: '确认', options: [{ label: 'A' }, { label: 'B' }] }] }),
+  }
+}
+
+/** A minimal run + node pair so waitForTurn can write its waiting bookkeeping. */
+function waitingRunFixture() {
+  const run = {
+    id: 'run-wait',
+    workflowName: '测试工作流',
+    log: [],
+    nodes: {
+      n1: { id: 'n1', title: '任务 A', type: 'task', status: 'running', sessionId: null, waitingForUser: null },
+    },
+  }
+  const node = { id: 'n1', title: '任务 A', type: 'task' }
+  return { run, node }
+}
+
+test('pendingUserQuestions tracks open ask calls and projected questions', () => {
+  const session = fakeSession('s-q')
+  session.push('turn/start')
+  session.push('tool/call', askCallEvent('c1', '选择哪种方案？'))
+  let projectionState
+  const projections = {
+    stateOf(target, key) {
+      return key === 'userQuestions' ? projectionState : undefined
+    },
+  }
+
+  // An ask call without its tool result is a foreground wait on the user.
+  let waiting = pendingUserQuestions(session, 0, projections)
+  assert.equal(waiting.length, 1)
+  assert.equal(waiting[0].callId, 'c1')
+  assert.equal(waiting[0].state, 'open')
+  assert.equal(waiting[0].questions[0].question, '选择哪种方案？')
+  assert.equal(waiting[0].questions[0].header, '确认')
+  assert.deepEqual(waiting[0].questions[0].options, ['A', 'B'])
+
+  // A projected row for the same call is deduplicated against the open call.
+  projectionState = { questions: { active: [{ callId: 'c1', questions: [{ id: 'q1', question: '选择哪种方案？' }], state: 'continued' }] } }
+  waiting = pendingUserQuestions(session, 0, projections)
+  assert.equal(waiting.length, 1)
+  assert.equal(waiting[0].state, 'open')
+
+  // The tool result closes the foreground wait; the continued row stays answerable.
+  session.push('tool/result', { message: { toolCallId: 'c1', content: [{ type: 'text', text: '{"pending":true,"callId":"c1"}' }] } })
+  waiting = pendingUserQuestions(session, 0, projections)
+  assert.equal(waiting.length, 1)
+  assert.equal(waiting[0].state, 'continued')
+
+  // Once the projection settles, the session waits on nothing.
+  projectionState = { questions: { active: [] } }
+  waiting = pendingUserQuestions(session, 0, projections)
+  assert.equal(waiting.length, 0)
+})
+
+test('a blocking user question suspends completion until the user answers', { timeout: 10000 }, async () => {
+  const agent = { id: 's-ask', status: 'running', session: undefined }
+  const session = fakeSession(agent.id)
+  agent.session = session
+  const { engine, emit } = createTurnHarness({ session, agent, subagents: {} })
+  const { run, node } = waitingRunFixture()
+
+  session.push('turn/start')
+  session.push('tool/call', askCallEvent('c1', '用哪个标题？'))
+
+  let settled = false
+  let outcome
+  engine.waitForTurn(session, agent.id, 0, run, node).then(
+    (value) => {
+      settled = true
+      outcome = value
+    },
+    () => {
+      settled = true
+    },
+  )
+
+  await waitFor(() => run.nodes.n1.waitingForUser !== null)
+  assert.equal(settled, false)
+  assert.equal(run.nodes.n1.waitingForUser.questions[0].question, '用哪个标题？')
+  assert.ok(run.log.some((entry) => entry.message.includes('等待用户回复')))
+
+  // The user answers in the task session: the tool result lands and the turn closes.
+  session.push('tool/result', { message: { toolCallId: 'c1', content: [{ type: 'text', text: '{"answers":[]}' }] } })
+  session.push('assistant/message', { message: assistantMessage('标题已确定，继续执行') })
+  const turnEnd = session.push('turn/end', { reason: { kind: 'completed' } })
+  agent.status = 'idle'
+  emit(turnEnd)
+
+  await waitFor(() => settled)
+  assert.equal(outcome.reasonKind, 'completed')
+  assert.equal(outcome.output, '标题已确定，继续执行')
+  assert.equal(run.nodes.n1.waitingForUser, null)
+  assert.ok(run.log.some((entry) => entry.message.includes('用户已回复')))
+})
+
+test('an expired timed question keeps the node waiting for the late reply', { timeout: 10000 }, async () => {
+  const agent = { id: 's-timed', status: 'idle', session: undefined }
+  const session = fakeSession(agent.id)
+  agent.session = session
+  const projectionState = { questions: { active: [] } }
+  const sessionProjections = {
+    stateOf(target, key) {
+      return key === 'userQuestions' ? projectionState : undefined
+    },
+  }
+  const { engine, emit } = createTurnHarness({ session, agent, subagents: {}, sessionProjections })
+  const { run, node } = waitingRunFixture()
+
+  session.push('turn/start')
+  session.push('tool/call', askCallEvent('c9', '继续吗？'))
+  session.push('tool/result', { message: { toolCallId: 'c9', content: [{ type: 'text', text: '{"pending":true,"callId":"c9"}' }] } })
+  session.push('assistant/message', { message: assistantMessage('我先等你的回复') })
+  const firstTurnEnd = session.push('turn/end', { reason: { kind: 'completed' } })
+  projectionState.questions.active = [{ callId: 'c9', questions: [{ id: 'q1', question: '继续吗？' }], state: 'continued' }]
+
+  let settled = false
+  let outcome
+  engine.waitForTurn(session, agent.id, 0, run, node).then(
+    (value) => {
+      settled = true
+      outcome = value
+    },
+    () => {
+      settled = true
+    },
+  )
+
+  emit(firstTurnEnd)
+  await waitFor(() => run.nodes.n1.waitingForUser !== null)
+  assert.equal(settled, false)
+
+  // The user answers later: the waking agent claims the reply, the question
+  // settles in the projection, and a fresh turn produces the real result.
+  agent.status = 'running'
+  projectionState.questions.active = []
+  session.push('user/message', { source: { kind: 'user-question-reply', callId: 'c9' } })
+  session.push('turn/start')
+  session.push('assistant/message', { message: assistantMessage('收到回复，最终结论') })
+  const finalTurnEnd = session.push('turn/end', { reason: { kind: 'completed' } })
+  agent.status = 'idle'
+  emit(finalTurnEnd)
+
+  await waitFor(() => settled)
+  assert.equal(outcome.reasonKind, 'completed')
+  assert.equal(outcome.output, '收到回复，最终结论')
+  assert.equal(run.nodes.n1.waitingForUser, null)
+})
+
+test('without the projection service an expired timed question no longer blocks completion', { timeout: 5000 }, async () => {
+  const agent = { id: 's-noproj', status: 'idle', session: undefined }
+  const session = fakeSession(agent.id)
+  agent.session = session
+  const { engine, emit } = createTurnHarness({ session, agent, subagents: {} })
+  const { run, node } = waitingRunFixture()
+
+  session.push('turn/start')
+  session.push('tool/call', askCallEvent('c2', '继续吗？'))
+  session.push('tool/result', { message: { toolCallId: 'c2', content: [{ type: 'text', text: '{"pending":true,"callId":"c2"}' }] } })
+  session.push('assistant/message', { message: assistantMessage('我先等你的回复') })
+  const firstTurnEnd = session.push('turn/end', { reason: { kind: 'completed' } })
+
+  let settled = false
+  let outcome
+  engine.waitForTurn(session, agent.id, 0, run, node).then(
+    (value) => {
+      settled = true
+      outcome = value
+    },
+    () => {
+      settled = true
+    },
+  )
+
+  emit(firstTurnEnd)
+  await waitFor(() => settled)
+  assert.equal(outcome.reasonKind, 'completed')
+  assert.equal(outcome.output, '我先等你的回复')
+  assert.ok(run.log.some((entry) => entry.message.includes('会话投影服务不可用')))
+})
+
+test('cancel-tasks while waiting for the user clears the waiting state', { timeout: 5000 }, async () => {
+  const agent = { id: 's-wcancel', status: 'running', session: undefined }
+  const session = fakeSession(agent.id)
+  agent.session = session
+  const { engine, cancelled } = createTurnHarness({ session, agent, subagents: {} })
+  const { run, node } = waitingRunFixture()
+  run.stopRequested = false
+  run.stopMode = null
+  run.terminated = false
+  run.terminatedPolicy = null
+
+  session.push('turn/start')
+  session.push('tool/call', askCallEvent('c3', '用哪个标题？'))
+
+  let settled = false
+  let failure
+  engine.waitForTurn(session, agent.id, 0, run, node).then(
+    () => {
+      settled = true
+    },
+    (error) => {
+      settled = true
+      failure = error
+    },
+  )
+  await waitFor(() => run.nodes.n1.waitingForUser !== null)
+  run.stopRequested = true
+  run.stopMode = 'cancel-tasks'
+
+  await waitFor(() => settled)
+  assert.match(failure.message, /任务已被终止/)
+  assert.equal(run.nodes.n1.waitingForUser, null)
+  assert.deepEqual(cancelled, [agent.id])
 })

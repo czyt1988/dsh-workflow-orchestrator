@@ -287,7 +287,7 @@ erDiagram
 
 ### 5.1 内存态与持久态
 
-运行中引擎内部保存完整状态（含 `failureSeen`、`summary`、最新 800 行日志，见 [`lib/host/engine.js:383`](../../lib/host/engine.js#L383)）。运行结束后 `recordRun()` 调用 `compactRun()`（[`lib/host/store.js:167`](../../lib/host/store.js#L167)）写入文件：
+运行中引擎内部保存完整状态（含 `failureSeen`、`summary`、最新 800 行日志，见 [`lib/host/engine.js:503`](../../lib/host/engine.js#L503)）。运行结束后 `recordRun()` 调用 `compactRun()`（[`lib/host/store.js:167`](../../lib/host/store.js#L167)）写入文件：
 
 | 字段 | 持久化 | 说明 |
 | --- | --- | --- |
@@ -299,9 +299,11 @@ erDiagram
 | `error` | 是 | 截断 2000 字；成功提前结束时为 `null` |
 | `nodes` | 是 | 每个节点保留 `id/title/type/status/sessionId/decision/startedAt/endedAt/error/output`；`not-run` 节点的 `endedAt` 为 `null`、无 `sessionId`；`decision` 仅判断节点有值；`error` 截断 2000 字，`output` 截断 4000 字 |
 | `log` | 是 | 只保留最近 400 行 |
-| `terminatedHadFailure`、`terminatedPolicy`、`failureSeen`、`stopRequested`、`active`、节点 `summary` | 否 | 仅内存/接口快照使用（`terminatedHadFailure` 决定提前结束后整体是否仍算失败） |
+| `terminatedHadFailure`、`terminatedPolicy`、`failureSeen`、`stopRequested`、`active`、节点 `summary`、节点 `waitingForUser` | 否 | 仅内存/接口快照使用（`terminatedHadFailure` 决定提前结束后整体是否仍算失败） |
 
-此外面板通过 `GET /api/run` 拿到的是 `publicRun()` 视图：补 `active = status === 'running'`，日志截最近 800 行（[`lib/host/engine.js:304`](../../lib/host/engine.js#L304)）。运行快照合并时只返回最近 10 条（[`lib/host/engine.js:326`](../../lib/host/engine.js#L326)）。
+节点 `waitingForUser` 是「等待用户回复」子状态的负载：会话仍在等待 `ask_user_question` 的回答时为 `{ since, questions }`（`questions` 是问题文本的扁平数组，最多 10 条、每条截断 500 字），回答后或节点以任何方式落定时清回 `null`。它只在运行中的 `publicRun()` 快照里出现，`compactRun()` 不持久化它——历史记录里等待状态没有意义，等待片段只留在运行日志（「等待用户回复」/「的用户已回复，继续执行」两行）。
+
+此外面板通过 `GET /api/run` 拿到的是 `publicRun()` 视图：补 `active = status === 'running'`，日志截最近 800 行（[`lib/host/engine.js:424`](../../lib/host/engine.js#L424)）。运行快照合并时只返回最近 10 条（[`lib/host/engine.js:446`](../../lib/host/engine.js#L446)）。
 
 ### 5.2 运行示例
 
@@ -410,8 +412,8 @@ erDiagram
 | 工作区自定义颜色 | 40 | [`lib/host/store.js:25`](../../lib/host/store.js#L25) | 超出项被丢弃 |
 | 单节点终止原因 | 500 字 | [`lib/host/store.js:26`](../../lib/host/store.js#L26) | 截断 |
 | 持久化日志 | 400 行 | [`lib/host/store.js:215`](../../lib/host/store.js#L207) | `slice(-400)` |
-| 内存日志 | 800 行 | [`lib/host/engine.js:53`](../../lib/host/engine.js#L53) | 追加后裁剪 |
-| 接口返回的运行 | 10 条 | [`lib/host/engine.js:326`](../../lib/host/engine.js#L326) | `slice(-10)` |
+| 内存日志 | 800 行 | [`lib/host/engine.js:57`](../../lib/host/engine.js#L57) | 追加后裁剪 |
+| 接口返回的运行 | 10 条 | [`lib/host/engine.js:446`](../../lib/host/engine.js#L446) | `slice(-10)` |
 | 单个错误/输出文本 | 2000 / 4000 字 | [`lib/host/store.js:184`](../../lib/host/store.js#L184) | 截断 |
 | 请求体 | 2 MB | [`lib/host/routes.js:19`](../../lib/host/routes.js#L19) | 直接拒绝，返回 400 |
 
