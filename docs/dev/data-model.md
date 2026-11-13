@@ -287,7 +287,7 @@ erDiagram
 
 ### 5.1 内存态与持久态
 
-运行中引擎内部保存完整状态（含 `failureSeen`、`summary`、最新 800 行日志，见 [`lib/host/engine.js:361`](../../lib/host/engine.js#L310)）。运行结束后 `recordRun()` 调用 `compactRun()`（[`lib/host/store.js:167`](../../lib/host/store.js#L167)）写入文件：
+运行中引擎内部保存完整状态（含 `failureSeen`、`summary`、最新 800 行日志，见 [`lib/host/engine.js:383`](../../lib/host/engine.js#L383)）。运行结束后 `recordRun()` 调用 `compactRun()`（[`lib/host/store.js:167`](../../lib/host/store.js#L167)）写入文件：
 
 | 字段 | 持久化 | 说明 |
 | --- | --- | --- |
@@ -301,7 +301,7 @@ erDiagram
 | `log` | 是 | 只保留最近 400 行 |
 | `terminatedHadFailure`、`terminatedPolicy`、`failureSeen`、`stopRequested`、`active`、节点 `summary` | 否 | 仅内存/接口快照使用（`terminatedHadFailure` 决定提前结束后整体是否仍算失败） |
 
-此外面板通过 `GET /api/run` 拿到的是 `publicRun()` 视图：补 `active = status === 'running'`，日志截最近 800 行（[`lib/host/engine.js:231`](../../lib/host/engine.js#L231)）。运行快照合并时只返回最近 10 条（[`lib/host/engine.js:253`](../../lib/host/engine.js#L253)）。
+此外面板通过 `GET /api/run` 拿到的是 `publicRun()` 视图：补 `active = status === 'running'`，日志截最近 800 行（[`lib/host/engine.js:304`](../../lib/host/engine.js#L304)）。运行快照合并时只返回最近 10 条（[`lib/host/engine.js:326`](../../lib/host/engine.js#L326)）。
 
 ### 5.2 运行示例
 
@@ -410,8 +410,8 @@ erDiagram
 | 工作区自定义颜色 | 40 | [`lib/host/store.js:25`](../../lib/host/store.js#L25) | 超出项被丢弃 |
 | 单节点终止原因 | 500 字 | [`lib/host/store.js:26`](../../lib/host/store.js#L26) | 截断 |
 | 持久化日志 | 400 行 | [`lib/host/store.js:215`](../../lib/host/store.js#L207) | `slice(-400)` |
-| 内存日志 | 800 行 | [`lib/host/engine.js:35`](../../lib/host/engine.js#L35) | 追加后裁剪 |
-| 接口返回的运行 | 10 条 | [`lib/host/engine.js:253`](../../lib/host/engine.js#L253) | `slice(-10)` |
+| 内存日志 | 800 行 | [`lib/host/engine.js:53`](../../lib/host/engine.js#L53) | 追加后裁剪 |
+| 接口返回的运行 | 10 条 | [`lib/host/engine.js:326`](../../lib/host/engine.js#L326) | `slice(-10)` |
 | 单个错误/输出文本 | 2000 / 4000 字 | [`lib/host/store.js:184`](../../lib/host/store.js#L184) | 截断 |
 | 请求体 | 2 MB | [`lib/host/routes.js:19`](../../lib/host/routes.js#L19) | 直接拒绝，返回 400 |
 

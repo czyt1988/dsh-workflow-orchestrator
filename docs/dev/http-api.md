@@ -242,7 +242,7 @@ sequenceDiagram
 }
 ```
 
-`run` 是 `publicRun()` 视图：比持久化记录多 `terminatedHadFailure`、`terminatedPolicy`、`failureSeen`、节点 `summary`，日志只保留最近 800 行（[`lib/host/engine.js:282`](../../lib/host/engine.js#L282)）。`run.startNodeId` 为 `null` 表示全量执行，为字符串表示本次从该节点开始执行；此时不在范围内的节点状态为 `not-run`。判断节点在节点状态里带 `decision`（`CONTINUE` / `STOP`）；提前终止的运行带 `terminated / terminatedBy / terminatedReason / terminatedAt`。`engine.runs` 最多 10 条。
+`run` 是 `publicRun()` 视图：比持久化记录多 `terminatedHadFailure`、`terminatedPolicy`、`failureSeen`、节点 `summary`，日志只保留最近 800 行（[`lib/host/engine.js:304`](../../lib/host/engine.js#L304)）。`run.startNodeId` 为 `null` 表示全量执行，为字符串表示本次从该节点开始执行；此时不在范围内的节点状态为 `not-run`。判断节点在节点状态里带 `decision`（`CONTINUE` / `STOP`）；提前终止的运行带 `terminated / terminatedBy / terminatedReason / terminatedAt`。`engine.runs` 最多 10 条。
 
 ### 3.4 `POST /api/create`
 
@@ -343,7 +343,7 @@ sequenceDiagram
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `workflowId` | string | 已保存工作流的 id；与 `workflow` 至少提供一个 |
-| `workflow` | object | 可选；当前画布覆盖版本，引擎会先保存这份定义再运行（[`lib/host/engine.js:300`](../../lib/host/engine.js#L300)） |
+| `workflow` | object | 可选；当前画布覆盖版本，引擎会先保存这份定义再运行（[`lib/host/engine.js:373`](../../lib/host/engine.js#L373)） |
 | `startNodeId` | string | 可选；`null` / `undefined` / 空字符串都视为全量执行。非字符串（且非 `null`）→ 400 `workflow-error`「起始节点 ID 无效」（[`lib/host/routes.js:167`](../../lib/host/routes.js#L167)） |
 
 行为：

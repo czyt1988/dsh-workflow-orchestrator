@@ -669,3 +669,275 @@ test('upstream context and scope walk through judge nodes', () => {
     ['a'],
   )
 })
+
+// ---------------------------------------------------------------------------
+// waitForTurn：任务完成的判定
+// ---------------------------------------------------------------------------
+
+function assistantMessage(text) {
+  return { role: 'assistant', content: [{ type: 'text', text }] }
+}
+
+/** A live-session double: `push()` appends an event and advances `seq`. */
+function fakeSession(id) {
+  const events = []
+  const session = {
+    id,
+    seq: 0,
+    deriveMessages() {
+      return events.filter((event) => event.type === 'assistant/message').map((event) => event.data.message)
+    },
+    snapshotEvents() {
+      return events.slice()
+    },
+    push(type, data) {
+      const event = { type, seq: session.seq, time: Date.now(), ...(data === undefined ? {} : { data }) }
+      events.push(event)
+      session.seq += 1
+      return event
+    },
+  }
+  return session
+}
+
+function createTurnHarness({ session, agent, subagents }) {
+  const listeners = new Set()
+  const cancelled = []
+  const ctx = {
+    logger: { info() {}, warn() {} },
+    get(name) {
+      return name === 'subagents' ? subagents : undefined
+    },
+    on(name, handler) {
+      if (name !== 'session/event') return () => {}
+      listeners.add(handler)
+      return () => listeners.delete(handler)
+    },
+    agents: {
+      get(id) {
+        return id === agent.id ? agent : undefined
+      },
+    },
+    sessionController: {
+      cancel(request) {
+        cancelled.push(request.sessionId)
+        return { accepted: true }
+      },
+    },
+  }
+  const store = {
+    runs() {
+      return []
+    },
+    recordRun() {},
+    ready() {
+      return Promise.resolve()
+    },
+    get() {
+      return undefined
+    },
+    save(value) {
+      return value
+    },
+  }
+  const catalogs = {
+    async get() {
+      return { defaults: {} }
+    },
+  }
+  const engine = new WorkflowEngine(ctx, store, catalogs)
+  return { engine, cancelled, emit: (event) => listeners.forEach((handler) => handler(session, event)) }
+}
+
+test('a turn closing while background subagents run does not complete the task', { timeout: 10000 }, async () => {
+  const agent = { id: 's-turn', status: 'idle', session: undefined }
+  const session = fakeSession(agent.id)
+  agent.session = session
+  const childWork = deferred()
+  let childrenCalls = 0
+  const subagents = {
+    waitForChildren() {
+      childrenCalls += 1
+      return childrenCalls === 1 ? childWork.promise : Promise.resolve(false)
+    },
+    drainDescendants() {
+      return Promise.resolve()
+    },
+  }
+  const { engine, emit } = createTurnHarness({ session, agent, subagents })
+
+  session.push('turn/start')
+  session.push('assistant/message', { message: assistantMessage('preliminary answer') })
+  const firstTurnEnd = session.push('turn/end', { reason: { kind: 'completed' } })
+
+  let settled = false
+  let outcome
+  const pending = engine.waitForTurn(session, agent.id, 0, undefined)
+  pending.then(
+    (value) => {
+      settled = true
+      outcome = value
+    },
+    () => {
+      settled = true
+    },
+  )
+
+  // The event path (not the poll fallback) must start waiting for children.
+  emit(firstTurnEnd)
+  await waitFor(() => childrenCalls === 1)
+  assert.equal(settled, false)
+
+  // A child settles and wakes the parent into a second turn.
+  agent.status = 'running'
+  session.push('turn/start')
+  childWork.resolve(true)
+
+  session.push('assistant/message', { message: assistantMessage('final review answer') })
+  const finalTurnEnd = session.push('turn/end', { reason: { kind: 'completed' } })
+  agent.status = 'idle'
+  emit(finalTurnEnd)
+
+  await waitFor(() => settled)
+  assert.equal(outcome.reasonKind, 'completed')
+  assert.equal(outcome.output, 'final review answer')
+})
+
+test('the last closed turn decides the task outcome', { timeout: 10000 }, async () => {
+  const session = fakeSession()
+  const agent = { id: 's-last', status: 'idle', session }
+  const childWork = deferred()
+  let childrenCalls = 0
+  const subagents = {
+    waitForChildren() {
+      childrenCalls += 1
+      return childrenCalls === 1 ? childWork.promise : Promise.resolve(false)
+    },
+  }
+  const { engine } = createTurnHarness({ session, agent, subagents })
+
+  session.push('turn/start')
+  session.push('assistant/message', { message: assistantMessage('preliminary answer') })
+  session.push('turn/end', { reason: { kind: 'completed' } })
+  let settled = false
+  let outcome
+  const pending = engine.waitForTurn(session, agent.id, 0, undefined)
+  pending.then(
+    (value) => {
+      settled = true
+      outcome = value
+    },
+    () => {
+      settled = true
+    },
+  )
+
+  await delay(400)
+  agent.status = 'running'
+  session.push('turn/start')
+  childWork.resolve(true)
+  await delay(300)
+
+  session.push('turn/end', { reason: { kind: 'aborted', reason: { kind: 'user' } } })
+  agent.status = 'idle'
+
+  await waitFor(() => settled)
+  assert.equal(outcome.reasonKind, 'aborted')
+  assert.match(outcome.message, /user/)
+})
+
+test('waitForTurn degrades to the first closed turn without the subagents service', { timeout: 5000 }, async () => {
+  const session = fakeSession()
+  const agent = { id: 's-fallback', status: 'idle', session }
+  const { engine } = createTurnHarness({ session, agent, subagents: undefined })
+
+  session.push('turn/start')
+  session.push('assistant/message', { message: assistantMessage('single turn answer') })
+  session.push('turn/end', { reason: { kind: 'completed' } })
+
+  let settled = false
+  let outcome
+  engine.waitForTurn(session, agent.id, 0, undefined).then(
+    (value) => {
+      settled = true
+      outcome = value
+    },
+    () => {
+      settled = true
+    },
+  )
+  await waitFor(() => settled)
+  assert.equal(outcome.reasonKind, 'completed')
+  assert.equal(outcome.output, 'single turn answer')
+})
+
+test('a failing waitForChildren degrades instead of blocking completion', { timeout: 5000 }, async () => {
+  const session = fakeSession()
+  const agent = { id: 's-broken-service', status: 'idle', session }
+  const subagents = {
+    waitForChildren() {
+      throw new Error('manager unavailable')
+    },
+  }
+  const { engine } = createTurnHarness({ session, agent, subagents })
+
+  session.push('turn/start')
+  session.push('assistant/message', { message: assistantMessage('answer with broken service') })
+  session.push('turn/end', { reason: { kind: 'completed' } })
+
+  let settled = false
+  let outcome
+  engine.waitForTurn(session, agent.id, 0, undefined).then(
+    (value) => {
+      settled = true
+      outcome = value
+    },
+    () => {
+      settled = true
+    },
+  )
+  await waitFor(() => settled)
+  assert.equal(outcome.reasonKind, 'completed')
+  assert.equal(outcome.output, 'answer with broken service')
+})
+
+test('cancel-tasks rejects a task waiting for background subagents', { timeout: 5000 }, async () => {
+  const session = fakeSession()
+  const agent = { id: 's-cancel', status: 'idle', session }
+  const drained = []
+  const subagents = {
+    waitForChildren() {
+      return new Promise(() => {})
+    },
+    drainDescendants(agents) {
+      drained.push(...agents.map((item) => item.id))
+      return Promise.resolve()
+    },
+  }
+  const { engine, cancelled } = createTurnHarness({ session, agent, subagents })
+
+  session.push('turn/start')
+  session.push('assistant/message', { message: assistantMessage('preliminary answer') })
+  session.push('turn/end', { reason: { kind: 'completed' } })
+
+  const run = { stopRequested: false, stopMode: null, terminated: false, terminatedPolicy: null }
+  let settled = false
+  let failure
+  engine.waitForTurn(session, agent.id, 0, run).then(
+    () => {
+      settled = true
+    },
+    (error) => {
+      settled = true
+      failure = error
+    },
+  )
+  await delay(300)
+  run.stopRequested = true
+  run.stopMode = 'cancel-tasks'
+
+  await waitFor(() => settled)
+  assert.match(failure.message, /任务已被终止/)
+  assert.deepEqual(cancelled, [agent.id])
+  assert.deepEqual(drained, [agent.id])
+})

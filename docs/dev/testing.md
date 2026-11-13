@@ -6,7 +6,7 @@
 
 | 层级 | 文件 | 数量 | 需要 DSH？ | 典型耗时 |
 | --- | --- | --- | --- | --- |
-| 引擎单元测试 | [`test/engine.test.mjs`](../../test/engine.test.mjs) | 22 个用例 | 否（用假执行器） | 秒级 |
+| 引擎单元测试 | [`test/engine.test.mjs`](../../test/engine.test.mjs) | 27 个用例 | 否（用假执行器） | 秒级 |
 | 存储/路由集成测试 | [`test/store-routes.test.mjs`](../../test/store-routes.test.mjs) | 7 个用例 | 否（临时目录 + 假 req/res） | 秒级 |
 | 全链路 E2E | [`tools/e2e-full.cjs`](../../tools/e2e-full.cjs) | 79 条断言 | 是（隔离 `DSH_HOME` + 真实模型） | 分钟级 |
 
@@ -14,7 +14,7 @@
 flowchart TB
   A["E2E · 79 条断言 · 真实 DSH / Chromium / 模型"]
   B["集成测试 · 7 个用例 · 存储往返 + 路由 + 准入"]
-  C["单元测试 · 22 个用例 · DAG 调度语义与 prompt 组装"]
+  C["单元测试 · 27 个用例 · DAG 调度语义、prompt 组装与完成判定"]
   A --> B --> C
   C -.-> D["npm test · 每次提交"]
   B -.-> D
@@ -31,7 +31,7 @@ npm test
 node --test test/engine.test.mjs test/store-routes.test.mjs
 ```
 
-引擎单测不启动 DSH：`WorkflowEngine` 构造函数接受 `options.executeTask` 作为测试接缝（[`lib/host/engine.js:293`](../../lib/host/engine.js#L293)），测试用 `createHarness()` 注入假执行器（[`test/engine.test.mjs:32`](../../test/engine.test.mjs#L32)）。假执行器返回 `{ sessionId, output }`，用 `deferred()` 控制完成时机，从而精确断言「谁先启动、谁在等谁」。
+引擎单测不启动 DSH：`WorkflowEngine` 构造函数接受 `options.executeTask` 作为测试接缝（[`lib/host/engine.js:317`](../../lib/host/engine.js#L317)），测试用 `createHarness()` 注入假执行器（[`test/engine.test.mjs:32`](../../test/engine.test.mjs#L32)）。假执行器返回 `{ sessionId, output }`，用 `deferred()` 控制完成时机，从而精确断言「谁先启动、谁在等谁」。完成判定另有 `createTurnHarness()`（[`test/engine.test.mjs:703`](../../test/engine.test.mjs#L703)），用假 `sessions` / `agents` / 可选 `subagents` 服务直接驱动 `waitForTurn()`。
 
 | 用例 | 覆盖语义 | 位置 |
 | --- | --- | --- |
@@ -57,6 +57,11 @@ node --test test/engine.test.mjs test/store-routes.test.mjs
 | 终止后失败 | 终止后失败的节点只记 `failed`，不翻转整体 | [`test/engine.test.mjs:605`](../../test/engine.test.mjs#L605) |
 | 判断/终止节点校验 | 提示词、输入连线、上游任务、输出连线等规则 | [`test/engine.test.mjs:625`](../../test/engine.test.mjs#L625) |
 | 上游上下文穿过判断节点 | `upstreamTaskNodes` 把判断节点当透明层 | [`test/engine.test.mjs:655`](../../test/engine.test.mjs#L655) |
+| 回合结束但有后台子代理 | 首轮 `completed` 但 `subagents.waitForChildren` 仍汇合到工作 → 不完成；子代理唤醒新轮次后再判定 | [`test/engine.test.mjs:752`](../../test/engine.test.mjs#L752) |
+| 只认最后一个回合 | 首轮成功、后续轮次 `aborted` → 任务按 `aborted` 失败 | [`test/engine.test.mjs:806`](../../test/engine.test.mjs#L806) |
+| 无 `subagents` 服务时降级 | 服务缺失时退回「第一个结束轮次」的旧行为，任务仍可完成 | [`test/engine.test.mjs:849`](../../test/engine.test.mjs#L849) |
+| `cancel-tasks` 终止等待中的任务 | 等待后台子代理时终止 → 取消会话、尽力停止后代并报「任务已被终止」 | [`test/engine.test.mjs:904`](../../test/engine.test.mjs#L904) |
+| `waitForChildren` 抛错时降级 | 可选服务异常不应阻塞完成判定，按回合边界落定 | [`test/engine.test.mjs:874`](../../test/engine.test.mjs#L874) |
 
 ## 2. 集成测试：存储与路由
 
@@ -76,7 +81,8 @@ node --test test/engine.test.mjs test/store-routes.test.mjs
 
 ### 未覆盖的部分（改这些代码时优先跑 E2E 或补用例）
 
-- `waitForTurn()` 的真实事件等待、8 秒启动宽限、6 小时超时分支；
+- `waitForTurn()` 与真实 DSH `session/event`、真实 `subagents` 服务联动的路径（单测用假会话/假服务覆盖了判定逻辑），以及 8 秒启动宽限、6 小时超时分支；
+- **后台子代理完成的真实链路**：E2E 需要构造一个会派发后台子代理的任务提示词，断言任务节点在子代理结算、主 agent 完成后续轮次之前保持「运行中」，下游节点不会提前启动；当前只有假 `subagents` 服务的单测覆盖；
 - `executeTaskReal()` 里对 `sessionController` 的真实调用（创建/权限/模型/提示词）；
 - 判断节点的真实模型判定、终止节点的 E2E 场景（当前 E2E 只更新了四张节点卡的面板断言，新的判断/终止流程需要在真实 DSH + 模型环境中补 scenario 后再写入断言）；
 - 浏览器半区的 React 组件逻辑（当前只由 E2E 覆盖）；

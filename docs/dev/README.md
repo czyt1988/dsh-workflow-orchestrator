@@ -52,13 +52,13 @@ flowchart TB
 | 路径 | 职责 | 入口 |
 | --- | --- | --- |
 | [`lib/index.js`](../../lib/index.js) | 宿主半区插件入口：装配 store / catalogs / engine / routes，声明注入服务 | [`apply(ctx)`](../../lib/index.js#L47) |
-| [`lib/host/engine.js`](../../lib/host/engine.js) | DAG 校验与调度、真实会话执行、日志与运行快照 | [`WorkflowEngine`](../../lib/host/engine.js#L238) |
+| [`lib/host/engine.js`](../../lib/host/engine.js) | DAG 校验与调度、真实会话执行、日志与运行快照 | [`WorkflowEngine`](../../lib/host/engine.js#L311) |
 | [`lib/host/store.js`](../../lib/host/store.js) | `workflows.json` 的读写、输入清洗、原子持久化、损坏恢复 | [`WorkflowStore`](../../lib/host/store.js#L198) |
 | [`lib/host/routes.js`](../../lib/host/routes.js) | 前缀 JSON API、准入栅栏、请求体上限、错误信封 | [`createRouteHandler`](../../lib/host/routes.js#L71) |
 | [`lib/host/catalogs.js`](../../lib/host/catalogs.js) | 工作区 / Agent 预设 / 权限预设 / 模型目录的实时聚合与 60s 缓存 | [`CatalogService`](../../lib/host/catalogs.js#L125) |
 | [`lib/host/util.js`](../../lib/host/util.js) | 零依赖小工具：ID、截断、克隆、错误信息 | [`newId`](../../lib/host/util.js#L12) |
 | [`lib/client.js`](../../lib/client.js) | 浏览器半区：一级页面、画布、属性面板、日志、轮询 | [`__ModuleLoader__.load`](../../lib/client.js#L12) |
-| [`test/engine.test.mjs`](../../test/engine.test.mjs) | 调度语义单测（12 个） | 测试接缝 [`executeTask`](../../lib/host/engine.js#L244) |
+| [`test/engine.test.mjs`](../../test/engine.test.mjs) | 调度语义单测（27 个） | 测试接缝 [`executeTask`](../../lib/host/engine.js#L317) |
 | [`test/store-routes.test.mjs`](../../test/store-routes.test.mjs) | 存储往返、清洗、路由与准入栅栏（5 个） | 临时 `DSH_HOME` |
 | [`tools/e2e-full.cjs`](../../tools/e2e-full.cjs) | 隔离 `DSH_HOME` 的全链路 E2E（79 条断言，配置全部走环境变量） | [`bootstrapEnvironment`](../../tools/e2e-full.cjs#L215) |
 | [`tools/verify-package.mjs`](../../tools/verify-package.mjs) | 发布前包结构与仓库文件自检（`npm run check:package`） | [`check`](../../tools/verify-package.mjs#L29) |
