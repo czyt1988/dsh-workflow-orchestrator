@@ -15,7 +15,7 @@
 | 顺序 | 文档 | 你会得到 | 核心图 |
 | --- | --- | --- | --- |
 | 1 | [架构总览](architecture.md) | 宿主半区 / 浏览器半区、5 个注入服务、加载链路 | 分层 flowchart、bootstrap sequenceDiagram |
-| 2 | [执行引擎](execution-engine.md) | DAG 调度、并发与超时、停止语义、真实会话创建 | 状态机、调度决策 flowchart、单任务 sequenceDiagram |
+| 2 | [执行引擎](execution-engine.md) | DAG 调度、判断/终止节点与提前终止、并发与超时、停止语义、真实会话创建 | 状态机、调度决策 flowchart、单任务 sequenceDiagram |
 | 3 | [数据模型](data-model.md) | `workflows.json` 结构、清洗规则、容量上限、原子写 | erDiagram、读写 flowchart |
 | 4 | [HTTP API](http-api.md) | 全部路由、`{ok,value}` 信封、错误码、准入栅栏 | 请求 sequenceDiagram |
 | 5 | [测试](testing.md) | 单测 / 集成 / E2E 分层、79 条断言、截图采集 | 测试金字塔 flowchart |

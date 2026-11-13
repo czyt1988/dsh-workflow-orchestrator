@@ -173,10 +173,10 @@ sequenceDiagram
 
 ### 5.2 执行
 
-- 点击「执行」：先 `flushSave()`，再 `POST /api/run`，请求体同时带 `workflowId` 与当前画布快照 `workflow`（[`lib/client.js:928`](../../lib/client.js#L928)）。
-- 点击「从此节点开始执行」：走同一个 `startRun()`，请求体额外带 `startNodeId`（[`lib/client.js:928`](../../lib/client.js#L928)）；宿主只调度该节点及其下游可达子图，范围外节点在调度开始前写为 `not-run`（[`lib/host/engine.js:298`](../../lib/host/engine.js#L298)、[`:447`](../../lib/host/engine.js#L447)）。
-- 宿主侧 `engine.start()` 会**用提交的覆盖版本先保存一次**，然后校验、建运行记录、异步调度（[`lib/host/engine.js:298`](../../lib/host/engine.js#L298)）。
-- 终止：`POST /api/stop`，带 `runId` 与 `cancelTasks`（[`lib/client.js:952`](../../lib/client.js#L952)）。
+- 点击「执行」：先 `flushSave()`，再 `POST /api/run`，请求体同时带 `workflowId` 与当前画布快照 `workflow`（[`lib/client.js:977`](../../lib/client.js#L977)）。
+- 点击「从此节点开始执行」：走同一个 `startRun()`，请求体额外带 `startNodeId`（[`lib/client.js:977`](../../lib/client.js#L977)）；宿主只调度该节点及其下游可达子图，范围外节点在调度开始前写为 `not-run`（[`lib/host/engine.js:349`](../../lib/host/engine.js#L349)、[`:565`](../../lib/host/engine.js#L565)）。
+- 宿主侧 `engine.start()` 会**用提交的覆盖版本先保存一次**，然后校验、建运行记录、异步调度（[`lib/host/engine.js:349`](../../lib/host/engine.js#L349)）。
+- 终止：`POST /api/stop`，带 `runId` 与 `cancelTasks`（[`lib/client.js:1001`](../../lib/client.js#L1001)）。
 
 ### 5.3 轮询
 

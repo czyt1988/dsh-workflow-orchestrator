@@ -59,9 +59,9 @@ flowchart TD
 | --- | --- |
 | [快速开始](user/getting-started.md) | 两种安装方式、打开入口、第一个 A→B 工作流、安装验证 |
 | [界面导览](user/interface.md) | 工具栏、节点面板、画布、消息窗口、属性区与空态、工作区配色、快捷键 |
-| [搭建工作流](user/building-workflows.md) | 任务节点 / 并行网关、添加与连线、属性字段逐项说明、执行前校验、从某个节点开始执行 |
-| [执行与监控](user/running-and-monitoring.md) | 三类拓扑、从节点开始执行的范围、节点与运行状态、日志、并发上限、真实任务会话 |
-| [终止与错误处理](user/stopping-and-errors.md) | 两种终止模式、失败/跳过/取消的级联、错误定位 |
+| [搭建工作流](user/building-workflows.md) | 任务 / 判断 / 终止节点与并行网关、添加与连线、属性字段逐项说明、执行前校验、从某个节点开始执行 |
+| [执行与监控](user/running-and-monitoring.md) | 四类拓扑、从节点开始执行的范围、判断/终止节点的提前结束、节点与运行状态、日志、并发上限、真实任务会话 |
+| [终止与错误处理](user/stopping-and-errors.md) | 两种手动终止模式、判断/终止节点触发的提前结束、失败/跳过/取消的级联、错误定位 |
 | [数据与 FAQ](user/data-and-faq.md) | 数据文件位置与结构、容量上限、备份迁移、卸载重装、已知限制 |
 
 ## 开发文档
@@ -69,7 +69,7 @@ flowchart TD
 | 文档 | 你会看到 |
 | --- | --- |
 | [架构](dev/architecture.md) | 浏览器半区 / 宿主半区、Cordis 服务注入、页面加载与数据流 |
-| [执行引擎](dev/execution-engine.md) | DAG 调度算法、范围执行与校验、并行网关、失败级联、两种停止模式、会话驱动 |
+| [执行引擎](dev/execution-engine.md) | DAG 调度算法、范围执行与校验、判断/终止节点与提前终止、并行网关、失败级联、两种停止模式、会话驱动 |
 | [数据模型](dev/data-model.md) | `workflows.json` 全字段、运行记录、清洗规则、原子写、上限 |
 | [HTTP API](dev/http-api.md) | 全部路由、请求/响应信封、错误码、准入栅栏 |
 | [开发指南](dev/development.md) | 环境、目录、命令、本地联调、调试、编码与提交约定 |

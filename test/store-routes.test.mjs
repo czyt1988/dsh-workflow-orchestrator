@@ -163,8 +163,7 @@ test('sanitizeWorkflow keeps valid workspace colors and drops hostile entries', 
   assert.equal(Object.keys(limited.settings.workspaceColors).length, 40)
 })
 
-test('run history keeps the start node and not-run statuses', async () => {
-  await withTempDir(async (dir) => {
+test('run history keeps the start node and not-run statuses', async () => {  await withTempDir(async (dir) => {
     const store = new WorkflowStore(fakeCtx(dir))
     await store.ready()
     const saved = store.save({
@@ -300,3 +299,72 @@ test('routes answer state, create, save, run, stop and enforce admission', async
     assert.equal(badMethod.status, 405)
   })
 })
+
+test('sanitizeWorkflow keeps judge and terminate control fields', () => {
+  const workflow = sanitizeWorkflow({
+    id: 'wf-control',
+    name: '控制节点',
+    nodes: [
+      {
+        id: 'j',
+        type: 'judge',
+        title: '',
+        task: { prompt: '评估输出', contextMode: 'full', workspaceId: 'ws-1' },
+        control: { onInvalid: 'stop', stopPolicy: 'cancel-tasks' },
+      },
+      {
+        id: 't',
+        type: 'terminate',
+        title: '',
+        control: { reason: '  结果已足够  ', stopPolicy: 'bogus' },
+      },
+      { id: 'x', type: 'bogus-type' },
+    ],
+    edges: [{ from: 'j', to: 't' }],
+  })
+  assert.equal(workflow.nodes[0].type, 'judge')
+  assert.equal(workflow.nodes[0].title, '判断节点')
+  assert.equal(workflow.nodes[0].task.prompt, '评估输出')
+  assert.deepEqual(workflow.nodes[0].control, { stopPolicy: 'cancel-tasks', onInvalid: 'stop' })
+  assert.equal(workflow.nodes[1].type, 'terminate')
+  assert.equal(workflow.nodes[1].title, '终止节点')
+  assert.deepEqual(workflow.nodes[1].control, { stopPolicy: 'detach', reason: '结果已足够' })
+  assert.equal(workflow.nodes[2].type, 'task')
+  const longReason = sanitizeWorkflow({
+    nodes: [{ id: 't2', type: 'terminate', control: { reason: 'x'.repeat(900) } }],
+  })
+  assert.equal(longReason.nodes[0].control.reason.length, 500)
+})
+
+test('run history keeps termination fields and judge decisions', async () => {
+  await withTempDir(async (dir) => {
+    const store = new WorkflowStore(fakeCtx(dir))
+    await store.ready()
+    store.recordRun({
+      id: 'run-terminated',
+      workflowId: 'wf-control',
+      workflowName: '控制节点',
+      status: 'completed',
+      terminated: true,
+      terminatedBy: { nodeId: 'j', title: '判断节点' },
+      terminatedReason: '不再继续',
+      terminatedAt: 3,
+      startedAt: 1,
+      endedAt: 4,
+      nodes: {
+        j: { id: 'j', title: '判断节点', type: 'judge', status: 'completed', decision: 'STOP' },
+      },
+      log: [],
+    })
+    await store.persist()
+    const reloaded = new WorkflowStore(fakeCtx(dir))
+    await reloaded.ready()
+    const run = reloaded.runs()[0]
+    assert.equal(run.terminated, true)
+    assert.deepEqual(run.terminatedBy, { nodeId: 'j', title: '判断节点' })
+    assert.equal(run.terminatedReason, '不再继续')
+    assert.equal(run.terminatedAt, 3)
+    assert.equal(run.nodes.j.decision, 'STOP')
+  })
+})
+

@@ -750,8 +750,11 @@ async function scenarioPanelAndPalette(url) {
     structure.palette.length > 0 && structure.hasCanvas && structure.hasInspector && structure.hasLog,
     { hasCanvas: structure.hasCanvas, hasInspector: structure.hasInspector, hasLog: structure.hasLog })
   check('1-page', '消息窗口位于中间列（画布下方）', structure.hasCenter && structure.logParentClass === 'wfo-center', structure.logParentClass)
-  check('2-palette', '左侧只有「任务节点」「并行网关」两种节点卡',
-    structure.paletteTitles.length === 2 && structure.paletteTitles[0].includes('任务节点') && structure.paletteTitles[1].includes('并行网关'),
+  check('2-palette', '左侧提供任务、并行网关、判断、终止四种节点卡',
+    structure.paletteTitles.length === 4 &&
+      ['任务节点', '并行网关', '判断节点', '终止节点'].every((label) =>
+        structure.paletteTitles.some((title) => title.includes(label)),
+      ),
     structure.paletteTitles)
 
   const before = await apiState()

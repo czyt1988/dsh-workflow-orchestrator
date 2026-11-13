@@ -198,6 +198,10 @@ sequenceDiagram
       "status": "running",
       "stopRequested": false,
       "stopMode": null,
+      "terminated": false,
+      "terminatedBy": null,
+      "terminatedReason": null,
+      "terminatedAt": null,
       "startedAt": 1760000001000,
       "endedAt": null,
       "error": null,
@@ -210,6 +214,7 @@ sequenceDiagram
           "type": "task",
           "status": "running",
           "sessionId": "session-example",
+          "decision": null,
           "startedAt": 1760000001000,
           "endedAt": null,
           "error": null,
@@ -237,7 +242,7 @@ sequenceDiagram
 }
 ```
 
-`run` 是 `publicRun()` 视图：比持久化记录多 `active`、`failureSeen`、节点 `summary`，日志只保留最近 800 行（[`lib/host/engine.js:231`](../../lib/host/engine.js#L231)）。`run.startNodeId` 为 `null` 表示全量执行，为字符串表示本次从该节点开始执行；此时不在范围内的节点状态为 `not-run`。`engine.runs` 最多 10 条。
+`run` 是 `publicRun()` 视图：比持久化记录多 `terminatedHadFailure`、`terminatedPolicy`、`failureSeen`、节点 `summary`，日志只保留最近 800 行（[`lib/host/engine.js:282`](../../lib/host/engine.js#L282)）。`run.startNodeId` 为 `null` 表示全量执行，为字符串表示本次从该节点开始执行；此时不在范围内的节点状态为 `not-run`。判断节点在节点状态里带 `decision`（`CONTINUE` / `STOP`）；提前终止的运行带 `terminated / terminatedBy / terminatedReason / terminatedAt`。`engine.runs` 最多 10 条。
 
 ### 3.4 `POST /api/create`
 
@@ -347,7 +352,8 @@ sequenceDiagram
 - 两者都没有 → 400「缺少 workflowId」；
 - 工作流已存在活动运行 → 400「该工作流正在运行（run ...）」；
 - 校验失败 → 400，消息以「工作流校验失败：」开头；`startNodeId` 指向不存在的节点时是「工作流校验失败：起始节点不存在：&lt;id&gt;」；
-- 带 `startNodeId` 时只执行该节点及其下游可达节点，范围外节点在运行快照里状态为 `not-run`，`run.startNodeId` 记录起始节点 id。
+- 带 `startNodeId` 时只执行该节点及其下游可达节点，范围外节点在运行快照里状态为 `not-run`，`run.startNodeId` 记录起始节点 id；
+- 判断节点的 `STOP` 判定或终止节点触发时，`run.terminated` 为 `true`，`terminatedBy` / `terminatedReason` / `terminatedAt` 记录触发节点、原因与时间。
 
 响应是 `{ run, engine }`，结构同 [`GET /api/run`](#33-get-apirun)。
 

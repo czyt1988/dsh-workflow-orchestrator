@@ -6,15 +6,15 @@
 
 | 层级 | 文件 | 数量 | 需要 DSH？ | 典型耗时 |
 | --- | --- | --- | --- | --- |
-| 引擎单元测试 | [`test/engine.test.mjs`](../../test/engine.test.mjs) | 12 个用例 | 否（用假执行器） | 秒级 |
-| 存储/路由集成测试 | [`test/store-routes.test.mjs`](../../test/store-routes.test.mjs) | 5 个用例 | 否（临时目录 + 假 req/res） | 秒级 |
+| 引擎单元测试 | [`test/engine.test.mjs`](../../test/engine.test.mjs) | 22 个用例 | 否（用假执行器） | 秒级 |
+| 存储/路由集成测试 | [`test/store-routes.test.mjs`](../../test/store-routes.test.mjs) | 7 个用例 | 否（临时目录 + 假 req/res） | 秒级 |
 | 全链路 E2E | [`tools/e2e-full.cjs`](../../tools/e2e-full.cjs) | 79 条断言 | 是（隔离 `DSH_HOME` + 真实模型） | 分钟级 |
 
 ```mermaid
 flowchart TB
   A["E2E · 79 条断言 · 真实 DSH / Chromium / 模型"]
-  B["集成测试 · 5 个用例 · 存储往返 + 路由 + 准入"]
-  C["单元测试 · 12 个用例 · DAG 调度语义与 prompt 组装"]
+  B["集成测试 · 7 个用例 · 存储往返 + 路由 + 准入"]
+  C["单元测试 · 22 个用例 · DAG 调度语义与 prompt 组装"]
   A --> B --> C
   C -.-> D["npm test · 每次提交"]
   B -.-> D
@@ -31,7 +31,7 @@ npm test
 node --test test/engine.test.mjs test/store-routes.test.mjs
 ```
 
-引擎单测不启动 DSH：`WorkflowEngine` 构造函数接受 `options.executeTask` 作为测试接缝（[`lib/host/engine.js:244`](../../lib/host/engine.js#L244)），测试用 `createHarness()` 注入假执行器（[`test/engine.test.mjs:32`](../../test/engine.test.mjs#L32)）。假执行器返回 `{ sessionId, output }`，用 `deferred()` 控制完成时机，从而精确断言「谁先启动、谁在等谁」。
+引擎单测不启动 DSH：`WorkflowEngine` 构造函数接受 `options.executeTask` 作为测试接缝（[`lib/host/engine.js:293`](../../lib/host/engine.js#L293)），测试用 `createHarness()` 注入假执行器（[`test/engine.test.mjs:32`](../../test/engine.test.mjs#L32)）。假执行器返回 `{ sessionId, output }`，用 `deferred()` 控制完成时机，从而精确断言「谁先启动、谁在等谁」。
 
 | 用例 | 覆盖语义 | 位置 |
 | --- | --- | --- |
@@ -46,7 +46,17 @@ node --test test/engine.test.mjs test/store-routes.test.mjs
 | 从中间节点开始只执行下游范围 | `start(..., { startNodeId })` 只启动起点及后继；范围外 `not-run`，整体 `completed`，启动顺序正确 | [`test/engine.test.mjs:287`](../../test/engine.test.mjs#L287) |
 | 从一条分支开始时忽略范围外网关输入 | `A→GW`、`B→GW`、`GW→C`，从 A 开始只跑 A、GW、C，B 未执行 | [`test/engine.test.mjs:326`](../../test/engine.test.mjs#L326) |
 | 从网关开始时直接扇出 | 起点是并行网关时没有范围内前序也视为可启动，直接放行后继 | [`test/engine.test.mjs:353`](../../test/engine.test.mjs#L353) |
-| 范围校验只看可达子图 | 范围外空提示词不阻塞；起始节点不存在、起点提示词为空会失败 | [`test/engine.test.mjs:376`](../../test/engine.test.mjs#L376) |
+| 范围校验只看可达子图 | 范围外空提示词不阻塞；起始节点不存在、起点提示词为空会失败 | [`test/engine.test.mjs:384`](../../test/engine.test.mjs#L384) |
+| 判定解析取最后一次 token | `WOF_DECISION: CONTINUE/STOP`、中英文冒号、大小写、缺失返回 `undefined` | [`test/engine.test.mjs:399`](../../test/engine.test.mjs#L399) |
+| 判断节点继续 | 判定 CONTINUE；下游启动；判断节点对上下文透明 | [`test/engine.test.mjs:407`](../../test/engine.test.mjs#L407) |
+| 判断节点判定终止 | STOP → 运行 `terminated`、下游 `skipped`、整体 `completed` | [`test/engine.test.mjs:444`](../../test/engine.test.mjs#L444) |
+| 无效判定降级 | 默认继续；`onInvalid: 'stop'` 时终止 | [`test/engine.test.mjs:476`](../../test/engine.test.mjs#L476) |
+| 终止节点 detach | 到达即终止；未启动节点跳过；在途任务跑完 | [`test/engine.test.mjs:512`](../../test/engine.test.mjs#L512) |
+| 终止节点 cancel-tasks | 终止时取消在途会话，节点 `cancelled` | [`test/engine.test.mjs:547`](../../test/engine.test.mjs#L547) |
+| 终止前失败 | 终止前已有失败 → 整体仍 `failed` | [`test/engine.test.mjs:584`](../../test/engine.test.mjs#L584) |
+| 终止后失败 | 终止后失败的节点只记 `failed`，不翻转整体 | [`test/engine.test.mjs:605`](../../test/engine.test.mjs#L605) |
+| 判断/终止节点校验 | 提示词、输入连线、上游任务、输出连线等规则 | [`test/engine.test.mjs:625`](../../test/engine.test.mjs#L625) |
+| 上游上下文穿过判断节点 | `upstreamTaskNodes` 把判断节点当透明层 | [`test/engine.test.mjs:655`](../../test/engine.test.mjs#L655) |
 
 ## 2. 集成测试：存储与路由
 
@@ -58,7 +68,9 @@ node --test test/engine.test.mjs test/store-routes.test.mjs
 | `sanitizeWorkflow` 修复恶意输入 | 默认名称、坐标 clamp、`contextMode` 归一、重复 id 重生成、坏边丢弃、settings 归一 | [`test/store-routes.test.mjs:119`](../../test/store-routes.test.mjs#L119) |
 | 工作区颜色清洗与保持 | `settings.workspaceColors` 合法颜色保留、非法颜色与非对象丢弃、持久化往返 | [`test/store-routes.test.mjs:138`](../../test/store-routes.test.mjs#L138) |
 | 运行记录保留起点与未执行状态 | `recordRun` 保留 `startNodeId`，节点 `not-run` 原样落盘 | [`test/store-routes.test.mjs:166`](../../test/store-routes.test.mjs#L166) |
-| 路由覆盖与准入栅栏 | 403、state/create/save/run/stop、`/api/run` 透传 `startNodeId`、非法类型 400、404、405 | [`test/store-routes.test.mjs:202`](../../test/store-routes.test.mjs#L202) |
+| 路由覆盖与准入栅栏 | 403、state/create/save/run/stop、`/api/run` 透传 `startNodeId`、非法类型 400、404、405 | [`test/store-routes.test.mjs:201`](../../test/store-routes.test.mjs#L201) |
+| 判断/终止节点清洗 | 节点类型、`control` 默认值与非法值归一、终止原因截断 | [`test/store-routes.test.mjs:303`](../../test/store-routes.test.mjs#L303) |
+| 提前终止运行记录持久化 | `terminated / terminatedBy / terminatedReason / terminatedAt`、判断节点 `decision` 往返 | [`test/store-routes.test.mjs:339`](../../test/store-routes.test.mjs#L339) |
 
 注意：测试在删除临时目录前会重试等待最后一次写入落盘（[`test/store-routes.test.mjs:49`](../../test/store-routes.test.mjs#L49)），这是 Windows 上原子写 + 异步清理的已知需要。
 
@@ -66,6 +78,7 @@ node --test test/engine.test.mjs test/store-routes.test.mjs
 
 - `waitForTurn()` 的真实事件等待、8 秒启动宽限、6 小时超时分支；
 - `executeTaskReal()` 里对 `sessionController` 的真实调用（创建/权限/模型/提示词）；
+- 判断节点的真实模型判定、终止节点的 E2E 场景（当前 E2E 只更新了四张节点卡的面板断言，新的判断/终止流程需要在真实 DSH + 模型环境中补 scenario 后再写入断言）；
 - 浏览器半区的 React 组件逻辑（当前只由 E2E 覆盖）；
 - 状态文件损坏后的 `.corrupt-*` 恢复路径。
 

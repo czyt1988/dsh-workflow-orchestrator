@@ -5,7 +5,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { WorkflowEngine, validateWorkflow, composePrompt, upstreamTaskNodes } from '../lib/host/engine.js'
+import { WorkflowEngine, validateWorkflow, composePrompt, upstreamTaskNodes, parseJudgeDecision } from '../lib/host/engine.js'
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -80,6 +80,14 @@ function task(id, title, prompt = `do ${id}`) {
 
 function gateway(id, title = '并行网关') {
   return { id, type: 'parallel', title, x: 0, y: 0 }
+}
+
+function judge(id, title = '判断节点', prompt = `judge ${id}`, control) {
+  return { id, type: 'judge', title, x: 0, y: 0, task: { prompt, contextMode: 'full' }, ...(control ? { control } : {}) }
+}
+
+function terminate(id, title = '终止节点', control) {
+  return { id, type: 'terminate', title, x: 0, y: 0, ...(control ? { control } : {}) }
 }
 
 function workflow(nodes, edges) {
@@ -386,4 +394,278 @@ test('scoped validation only checks the reachable subgraph', () => {
   assert.match(validateWorkflow(definition, { startNodeId: 'missing' }).join(';'), /起始节点不存在/)
   const emptyStart = workflow([task('a', '任务 A', '')], [])
   assert.match(validateWorkflow(emptyStart, { startNodeId: 'a' }).join(';'), /还没有填写提示词/)
+})
+
+test('judge verdict parsing takes the last decision token', () => {
+  assert.equal(parseJudgeDecision('分析完成\nWOF_DECISION: CONTINUE'), 'CONTINUE')
+  assert.equal(parseJudgeDecision('WOF_DECISION：STOP'), 'STOP')
+  assert.equal(parseJudgeDecision('WOF_DECISION: CONTINUE\nWOF_DECISION: STOP'), 'STOP')
+  assert.equal(parseJudgeDecision('没有任何判定'), undefined)
+  assert.equal(parseJudgeDecision(undefined), undefined)
+})
+
+test('a judge continues and keeps its upstream output as downstream context', async () => {
+  const started = []
+  const upstreamIds = new Map()
+  const { engine, recorded } = createHarness({
+    executeTask: async ({ node, upstream }) => {
+      started.push(node.id)
+      upstreamIds.set(
+        node.id,
+        upstream.map((entry) => entry.node.id),
+      )
+      await delay(5)
+      if (node.type === 'judge') return { sessionId: 's-j', output: '评估完成\nWOF_DECISION: CONTINUE' }
+      return { sessionId: `s-${node.id}`, output: `${node.id} output` }
+    },
+  })
+  const definition = workflow(
+    [task('a', '任务 A'), judge('j', '判断是否继续'), task('b', '任务 B')],
+    [
+      ['a', 'j'],
+      ['j', 'b'],
+    ],
+  )
+  await engine.start(undefined, definition)
+  await waitFor(() => recorded.length === 1)
+  const run = recorded[0]
+  assert.equal(run.status, 'completed')
+  assert.equal(run.terminated, false)
+  assert.equal(run.nodes.j.status, 'completed')
+  assert.equal(run.nodes.j.decision, 'CONTINUE')
+  assert.equal(run.nodes.b.status, 'completed')
+  assert.deepEqual(started, ['a', 'j', 'b'])
+  // The judge is transparent: downstream tasks still receive the upstream task output.
+  assert.deepEqual(upstreamIds.get('j'), ['a'])
+  assert.deepEqual(upstreamIds.get('b'), ['a'])
+  assert.match(run.log.map((entry) => entry.message).join('\n'), /判断节点「判断是否继续」判定：继续/)
+})
+
+test('a STOP verdict terminates the run early and skips downstream nodes', async () => {
+  const started = []
+  const { engine, recorded } = createHarness({
+    executeTask: async ({ node }) => {
+      started.push(node.id)
+      await delay(5)
+      if (node.type === 'judge') return { sessionId: 's-j', output: '没有继续价值\nWOF_DECISION: STOP' }
+      return { sessionId: `s-${node.id}`, output: 'ok' }
+    },
+  })
+  const definition = workflow(
+    [task('a', '任务 A'), judge('j', '判断是否继续'), task('b', '任务 B')],
+    [
+      ['a', 'j'],
+      ['j', 'b'],
+    ],
+  )
+  await engine.start(undefined, definition)
+  await waitFor(() => recorded.length === 1)
+  const run = recorded[0]
+  assert.equal(run.status, 'completed')
+  assert.equal(run.terminated, true)
+  assert.equal(run.terminatedBy.nodeId, 'j')
+  assert.match(run.terminatedReason, /判断节点「判断是否继续」/)
+  assert.equal(run.nodes.j.status, 'completed')
+  assert.equal(run.nodes.j.decision, 'STOP')
+  assert.equal(run.nodes.b.status, 'skipped')
+  assert.match(run.nodes.b.error, /工作流已提前终止/)
+  assert.deepEqual(started, ['a', 'j'])
+  assert.match(run.log.map((entry) => entry.message).join('\n'), /工作流提前结束/)
+})
+
+test('an unrecognised verdict continues by default and can stop when configured', async () => {
+  const runOnce = async (control) => {
+    const started = []
+    const { engine, recorded } = createHarness({
+      executeTask: async ({ node }) => {
+        started.push(node.id)
+        await delay(5)
+        if (node.type === 'judge') return { sessionId: 's-j', output: '这次没有按格式输出' }
+        return { sessionId: `s-${node.id}`, output: 'ok' }
+      },
+    })
+    const definition = workflow(
+      [task('a', '任务 A'), judge('j', '判断', 'judge prompt', control), task('b', '任务 B')],
+      [
+        ['a', 'j'],
+        ['j', 'b'],
+      ],
+    )
+    await engine.start(undefined, definition)
+    await waitFor(() => recorded.length === 1)
+    return { run: recorded[0], started }
+  }
+  const fallback = await runOnce(undefined)
+  assert.equal(fallback.run.status, 'completed')
+  assert.equal(fallback.run.terminated, false)
+  assert.equal(fallback.run.nodes.b.status, 'completed')
+  assert.deepEqual(fallback.started, ['a', 'j', 'b'])
+  assert.match(fallback.run.log.map((entry) => entry.message).join('\n'), /没有识别到 WOF_DECISION 判定/)
+
+  const stopping = await runOnce({ onInvalid: 'stop' })
+  assert.equal(stopping.run.status, 'completed')
+  assert.equal(stopping.run.terminated, true)
+  assert.equal(stopping.run.nodes.b.status, 'skipped')
+  assert.deepEqual(stopping.started, ['a', 'j'])
+})
+
+test('a terminate node ends the run, skips unstarted nodes and lets in-flight tasks finish', async () => {
+  const started = []
+  const { engine, recorded } = createHarness({
+    executeTask: async ({ node }) => {
+      started.push(node.id)
+      if (node.id === 'slow') {
+        await delay(80)
+        return { sessionId: 's-slow', output: 'slow done' }
+      }
+      await delay(5)
+      return { sessionId: `s-${node.id}`, output: 'ok' }
+    },
+  })
+  const definition = workflow(
+    [task('a', '任务 A'), terminate('t', '到此为止', { reason: '结果已足够' }), task('b', '任务 B'), task('slow', '在途任务')],
+    [
+      ['a', 't'],
+      ['a', 'b'],
+    ],
+  )
+  await engine.start(undefined, definition)
+  await waitFor(() => recorded.length === 1)
+  const run = recorded[0]
+  assert.equal(run.status, 'completed')
+  assert.equal(run.terminated, true)
+  assert.equal(run.terminatedBy.nodeId, 't')
+  assert.equal(run.terminatedReason, '结果已足够')
+  assert.equal(run.nodes.t.status, 'completed')
+  assert.equal(run.nodes.b.status, 'skipped')
+  assert.match(run.nodes.b.error, /工作流已提前终止/)
+  // The already running unrelated task keeps running and still completes.
+  assert.equal(run.nodes.slow.status, 'completed')
+  assert.deepEqual(started.sort(), ['a', 'slow'])
+})
+
+test('a terminate node can cancel in-flight task sessions', async () => {
+  const started = []
+  const { engine, recorded, cancels } = createHarness({
+    executeTask: async ({ run, node }) => {
+      started.push(node.id)
+      if (node.id === 'long') {
+        run.nodes[node.id].sessionId = 's-long'
+        await new Promise((resolve, reject) => {
+          const timer = setInterval(() => {
+            if (cancels.includes('s-long')) {
+              clearInterval(timer)
+              reject(new Error('aborted'))
+            }
+          }, 5)
+          timer.unref?.()
+        })
+        return { sessionId: 's-long', output: 'never' }
+      }
+      await delay(5)
+      return { sessionId: `s-${node.id}`, output: 'ok' }
+    },
+  })
+  const definition = workflow(
+    [task('a', '任务 A'), terminate('t', '立即终止', { stopPolicy: 'cancel-tasks' }), task('long', '在途任务')],
+    [['a', 't']],
+  )
+  await engine.start(undefined, definition)
+  await waitFor(() => recorded.length === 1)
+  const run = recorded[0]
+  assert.deepEqual(cancels, ['s-long'])
+  assert.equal(run.status, 'completed')
+  assert.equal(run.terminated, true)
+  assert.equal(run.terminatedPolicy, 'cancel-tasks')
+  assert.equal(run.nodes.long.status, 'cancelled')
+  assert.deepEqual(started.sort(), ['a', 'long'])
+})
+
+test('a failure before termination still marks the run as failed', async () => {
+  const { engine, recorded } = createHarness({
+    executeTask: async ({ node }) => {
+      await delay(node.id === 'failer' ? 2 : 20)
+      if (node.id === 'failer') throw new Error('boom')
+      return { sessionId: `s-${node.id}`, output: 'ok' }
+    },
+  })
+  const definition = workflow(
+    [task('failer', '失败任务'), task('a', '任务 A'), terminate('t', '终止')],
+    [['a', 't']],
+  )
+  await engine.start(undefined, definition)
+  await waitFor(() => recorded.length === 1)
+  const run = recorded[0]
+  assert.equal(run.terminated, true)
+  assert.equal(run.status, 'failed')
+  assert.equal(run.nodes.failer.status, 'failed')
+  assert.equal(run.nodes.t.status, 'completed')
+})
+
+test('a failure after termination does not flip the completed run', async () => {
+  const { engine, recorded } = createHarness({
+    executeTask: async ({ node }) => {
+      await delay(node.id === 'late' ? 60 : 5)
+      if (node.id === 'late') throw new Error('late boom')
+      return { sessionId: `s-${node.id}`, output: 'ok' }
+    },
+  })
+  const definition = workflow(
+    [task('a', '任务 A'), terminate('t', '终止'), task('late', '迟到失败任务')],
+    [['a', 't']],
+  )
+  await engine.start(undefined, definition)
+  await waitFor(() => recorded.length === 1)
+  const run = recorded[0]
+  assert.equal(run.terminated, true)
+  assert.equal(run.status, 'completed')
+  assert.equal(run.nodes.late.status, 'failed')
+})
+
+test('validation checks judge and terminate wiring', () => {
+  const emptyJudgePrompt = workflow([task('a', 'A'), judge('j', 'J', '')], [['a', 'j']])
+  assert.match(validateWorkflow(emptyJudgePrompt).join(';'), /判断节点「J」还没有填写提示词/)
+
+  const noContext = workflow([task('a', 'A'), judge('j', 'J')], [['a', 'j']])
+  noContext.nodes[1].task.contextMode = 'none'
+  assert.match(validateWorkflow(noContext).join(';'), /上游上下文不能选择「完全不传」/)
+
+  const judgeNoInput = workflow([judge('j', 'J')], [])
+  assert.match(validateWorkflow(judgeNoInput).join(';'), /判断节点「J」缺少输入连线/)
+
+  const judgeNoTask = workflow([judge('j0', 'J0'), judge('j', 'J')], [['j0', 'j']])
+  assert.match(validateWorkflow(judgeNoTask).join(';'), /判断节点「J」的上游没有可评估的任务/)
+
+  const terminateNoInput = workflow([terminate('t', 'T')], [])
+  assert.match(validateWorkflow(terminateNoInput).join(';'), /终止节点「T」缺少输入连线/)
+
+  const terminateWithOutput = workflow([task('a', 'A'), terminate('t', 'T'), task('b', 'B')], [
+    ['a', 't'],
+    ['t', 'b'],
+  ])
+  assert.match(validateWorkflow(terminateWithOutput).join(';'), /终止节点「T」不应有输出连线/)
+
+  const valid = workflow([task('a', 'A'), judge('j', 'J'), terminate('t', 'T')], [
+    ['a', 'j'],
+    ['a', 't'],
+  ])
+  assert.deepEqual(validateWorkflow(valid), [])
+})
+
+test('upstream context and scope walk through judge nodes', () => {
+  const definition = workflow(
+    [task('a', '任务 A'), judge('j', '判断'), task('b', '任务 B')],
+    [
+      ['a', 'j'],
+      ['j', 'b'],
+    ],
+  )
+  assert.deepEqual(
+    upstreamTaskNodes(definition, 'j').map((node) => node.id),
+    ['a'],
+  )
+  assert.deepEqual(
+    upstreamTaskNodes(definition, 'b').map((node) => node.id),
+    ['a'],
+  )
 })
