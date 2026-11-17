@@ -19,7 +19,7 @@ DSH 插件包的「可加载性」由 [`package.json`](../../package.json) 的 `
 | `dsh.bundle.patch` | `./cordis.patch.yml` | Bundle patch 文件（[`package.json:29`](../../package.json#L29)） |
 | `dsh.client.platform` | `web` | 浏览器半区只面向 Web 壳层（[`package.json:35`](../../package.json#L35)） |
 | `dsh.manifestVersion` | `1` | 插件清单版本（[`package.json:37`](../../package.json#L37)） |
-| `files` | `lib/index.js`、`lib/host`、`lib/client.js`、`cordis.patch.yml`、`locale/*.json`、`icon.svg`、`README.md`、`LICENSE` | npm 发布白名单（[`package.json:39`](../../package.json#L39)） |
+| `files` | `lib/index.js`、`lib/host`、`lib/client.js`、`cordis.patch.yml`、`locale/*.json`、`icon.svg`、`README.md`、`README.en.md`、`LICENSE` | npm 发布白名单（[`package.json:39`](../../package.json#L39)） |
 
 ### 1.1 Bundle patch 的 insert 行
 
@@ -142,16 +142,16 @@ CI（[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)）在 `ubuntu-
 
 | 类别 | 位置 | 需要替换为 |
 | --- | --- | --- |
-| 仓库地址 | [`package.json:61`](../../package.json#L61) 的 `repository`、[`:66`](../../package.json#L66) 的 `bugs`、[`:68`](../../package.json#L68) 的 `homepage` | 你的 `OWNER/REPO` |
+| 仓库地址 | [`package.json:62`](../../package.json#L62) 的 `repository`、[`:67`](../../package.json#L67) 的 `bugs`、[`:69`](../../package.json#L69) 的 `homepage` | 你的 `OWNER/REPO` |
 | 自检硬编码 | [`tools/verify-package.mjs:96`](../../tools/verify-package.mjs#L96) 里写死了 `github.com/czyt1988/dsh-workflow-orchestrator` | 与新仓库地址保持一致，否则 `npm run check` 失败 |
-| CHANGELOG 链接 | [`CHANGELOG.md:39`](../../CHANGELOG.md#L39) 的 compare 与 release 链接 | 指向新 `OWNER/REPO` 的 tag |
-| 安装示例 | [`README.md`](../../README.md) 安装章节的路径示例 | 确认使用 `D:\path\to\dsh-workflow-orchestrator` 这类占位符，没有遗留本机路径 |
-| 徽章 | [`README.md`](../../README.md) 顶部 `<p align="center">` 中的 CI / License / Node / DSH / PRs 徽章 | 换 owner 时同步 actions badge 的 `OWNER/REPO` 与 shields.io 链接 |
+| CHANGELOG 链接 | [`CHANGELOG.md:52`](../../CHANGELOG.md#L52) 的 compare 与 release 链接 | 指向新 `OWNER/REPO` 的 tag |
+| 安装示例 | [`README.md`](../../README.md) 与 [`README.en.md`](../../README.en.md) 安装章节的路径示例 | 确认使用 `D:\path\to\dsh-workflow-orchestrator` 这类占位符，没有遗留本机路径 |
+| 徽章 | [`README.md`](../../README.md) 与 [`README.en.md`](../../README.en.md) 顶部 `<p align="center">` 中的 CI / License / Node / DSH / PRs 徽章 | 换 owner 时同步 actions badge 的 `OWNER/REPO` 与 shields.io 链接 |
 | 安全报告 | `SECURITY.md` 里的 Security Advisories 链接与邮箱占位 | 新仓库地址 + 维护者真实邮箱（替换 `security@example.com`） |
 | 行为准则 | `CODE_OF_CONDUCT.md` 里的联系方式占位（`conduct@example.com`） | 维护者真实可用邮箱 |
 | 贡献入口 | `CONTRIBUTING.md` 里的 issue / pull 链接 | 新仓库地址 |
 | Issue 模板 | `.github/ISSUE_TEMPLATE/` 里的仓库/联系链接 | 新仓库地址 |
-| 作者与版权 | [`package.json:59`](../../package.json#L59)、`LICENSE` 的版权行 | 实际作者/版权人 |
+| 作者与版权 | [`package.json:60`](../../package.json#L60)、`LICENSE` 的版权行 | 实际作者/版权人 |
 | E2E 本机配置 | [`tools/e2e-full.cjs`](../../tools/e2e-full.cjs) 已通过环境变量注入：`DSH_BIN`、`DSH_E2E_PLAYWRIGHT_CORE`、`CHROME_PATH`、`DSH_E2E_CREDENTIALS` | 无需替换；仓库内不保存本机路径与凭据 |
 | E2E 模型配置 | [`tools/e2e-full.cjs:187`](../../tools/e2e-full.cjs#L187) 的 `PROFILE_PATCH` 使用 `DSH_E2E_PROVIDER` / `DSH_E2E_MODEL` / `DSH_E2E_BASE_URL` / `DSH_E2E_API_KEY_ENV` | 用环境变量注入真实网关，不要把内网地址写回仓库 |
 | 本地材料 | `.e2e/`、`.e2e-home/`、`.probe/`、`internal/` | 保持 gitignore，不提交 |

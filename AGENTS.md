@@ -61,7 +61,7 @@ npm run test:e2e  # 全链路 E2E（需要 DSH 桌面端 + Playwright + 模型�
 | `test/`、`tools/` | 单元测试、E2E、包自检 | 可以 |
 | `docs/user/`、`docs/dev/`、`docs/README.md` | 用户/开发文档 | 可以，遵守下方文档规则 |
 | `docs/assets/images/` | 文档截图（PNG） | 替换/新增可以，命名见第 8 节 |
-| `README.md`、`AGENTS.md`、`CONTRIBUTING.md`、`CHANGELOG.md`、`LICENSE`、`.github/` | 社区与发布文件 | 按需修改，改版本/发布流程需同步 |
+| `README.md`、`README.en.md`、`AGENTS.md`、`CONTRIBUTING.md`、`CHANGELOG.md`、`LICENSE`、`.github/` | 社区与发布文件 | 按需修改，改版本/发布流程需同步 |
 | `.e2e/`、`.e2e-home/`、`.probe/`、`internal/` | 本地证据与排障材料（**已 gitignore**） | 不要提交，不要手工伪造结果 |
 | `node_modules/`、`package-lock.json` 等 | 依赖产物 | 不要提交 |
 
@@ -90,6 +90,7 @@ E2E 的规范：隔离 `DSH_HOME` + 独立端口 + Playwright + 真实模型，�
 
 - 文档分 **应用文档**（`docs/user/`，面向使用者）与 **开发文档**（`docs/dev/`，面向贡献者）；新增文档必须加入 [docs/README.md](docs/README.md) 与相关索引。
 - 简体中文、GitHub 风格 Markdown；每篇开头有面包屑 `[文档首页](../README.md) / [用户文档](README.md)`（开发文档对应 `[开发文档](README.md)`）。
+- 根目录 `README.md` 是默认中文版，`README.en.md` 是对应的英文版；两篇顶部互相链接，安装方式、命令、功能清单等结构性改动必须同步更新两篇。
 - 嵌入式 Mermaid 图优先；节点文字含括号/冒号/斜杠时必须加双引号（`A["POST /api/run"]`）。
 - 截图统一放 `docs/assets/images/`，写作 `![中文 alt](../assets/images/xxx.png)`，下一行配 `*图 N：说明。*`；图号在文档系列内连续编号。新增界面截图必须来自真实运行（E2E 或手工操作），不要使用设计稿冒充实现。
 - 文档里不要出现本机绝对路径（如 `D:\Users\...`）、token、Cookie、邮箱或个人会话内容；路径示例用 `D:\path\to\plugin` 这类占位。
@@ -101,8 +102,8 @@ E2E 的规范：隔离 `DSH_HOME` + 独立端口 + Playwright + 真实模型，�
 | 字段、上限、文件格式 | `docs/dev/data-model.md`、`docs/user/building-workflows.md` |
 | 调度/停止/失败语义 | `docs/dev/execution-engine.md`、`docs/user/running-and-monitoring.md`、`docs/user/stopping-and-errors.md` |
 | UI 文案、布局、交互 | `docs/user/interface.md`、相关截图 |
-| 安装方式、清单、版本 | `README.md`、`docs/dev/packaging-and-release.md`、`CHANGELOG.md` |
-| 命令、工具、CI | `README.md`、`docs/dev/development.md`、`docs/dev/testing.md` |
+| 安装方式、清单、版本 | `README.md`、`README.en.md`、`docs/dev/packaging-and-release.md`、`CHANGELOG.md` |
+| 命令、工具、CI | `README.md`、`README.en.md`、`docs/dev/development.md`、`docs/dev/testing.md` |
 
 ## 9. 截图更新流程
 

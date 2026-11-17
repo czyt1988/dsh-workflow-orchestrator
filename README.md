@@ -17,6 +17,10 @@
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome" /></a>
 </p>
 
+<p align="center">
+  <a href="README.en.md"><img src="https://img.shields.io/badge/English-README-2563eb?style=flat-square" alt="Read this README in English" /></a>
+</p>
+
 > **一句话**：在 DeepSeek Harness（DSH）左侧栏新增一级页面「工作流编排」——在画布上拖入任务节点、连线、点「执行」，每个任务节点都会在指定工作区里**新建一个真实的 DSH 任务会话**，串行、并行与汇合都由连线决定，执行过程实时写进底部消息窗口。
 
 ---
@@ -36,7 +40,6 @@
 - [Roadmap](#roadmap)
 - [参与贡献](#参与贡献)
 - [License](#license)
-- [English overview](#english-overview)
 
 ---
 
@@ -259,7 +262,8 @@ dsh-workflow-orchestrator/
 ├── CODE_OF_CONDUCT.md
 ├── SECURITY.md
 ├── LICENSE                   # MIT
-├── README.md
+├── README.md                 # 中文版 README（默认）
+├── README.en.md              # 英文版 README
 ├── cordis.patch.yml          # bundle patch：向 profile 插入 loader 行
 ├── icon.svg                  # 插件图标
 └── package.json              # DSH 清单 + npm 元数据
@@ -319,10 +323,4 @@ E2E 会在隔离的 `DSH_HOME` 中启动 `dsh --profile web`，用 Playwright �
 
 ---
 
-## English overview
-
-**dsh-workflow-orchestrator** is a visual workflow plugin for [DeepSeek Harness](https://github.com/deepseek-ai). It adds a first-level "Workflow" page: drag task nodes onto a canvas, connect them (sequential, parallel, or joined by a parallel gateway), and run the graph. Every task node creates a **real DSH task session** in the selected workspace; progress and errors stream into a run log. Task cards show which workspace each node belongs to and use distinct background colors across workspaces, while card borders keep expressing run status. A run can also start from any task node, executing only that node and its downstream nodes (the rest are marked "not run" without creating sessions). A **judge node** creates a session to evaluate its upstream output and can end the whole run early (`WOF_DECISION: CONTINUE|STOP`); a **terminate node** ends the run as soon as it is reached. Nodes that never started are marked "skipped" and do not count as failures. Workflows persist to `$DSH_HOME/workflow-orchestrator/workflows.json`. Zero runtime dependencies, Node.js ≥ 20.
-
-- Install: add this repository folder through the DSH plugin manager, or link it into the profile's `node_modules` and `dsh.profile.bundles`.
-- Test: `npm test` (unit) and `npm run check` (package manifest + docs lint); E2E requires the DSH desktop app, Playwright and model credentials.
-- Docs: [user guide](docs/user/README.md) · [developer guide](docs/dev/README.md) (Chinese).
+> English version: [README.en.md](README.en.md).

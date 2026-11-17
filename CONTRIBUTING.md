@@ -100,7 +100,7 @@ window.__ModuleLoader__.load({
 ### 前端与文案
 
 - 界面文案走 `locale/zh.json` 与 `locale/en.json`，两边 key 必须一一对应。
-- 新增用户可见功能后，同步更新 `README.md`、相关文档与截图。
+- 新增用户可见功能后，同步更新 `README.md`、`README.en.md`、相关文档与截图。
 
 ## 提交规范
 
@@ -165,7 +165,7 @@ git commit -s -m "feat(client): 节点属性面板支持上游上下文三档"
 
 改动涉及以下内容时，必须在同一个 PR 里同步文档与 [CHANGELOG.md](CHANGELOG.md)：
 
-- 用户可见行为、界面、配置项、安装方式 → 更新 `README.md`；新增功能在 CHANGELOG 的 `[Unreleased]` 下补 `### Added` / `### Changed` / `### Fixed` 条目。
+- 用户可见行为、界面、配置项、安装方式 → 更新 `README.md` 与 `README.en.md`；新增功能在 CHANGELOG 的 `[Unreleased]` 下补 `### Added` / `### Changed` / `### Fixed` 条目。
 - JSON API 路由（前缀 `/workflow-orchestrator`）、存储结构、运行记录格式 → 更新 `docs/` 下对应开发文档，并在 CHANGELOG 记录。
 - `package.json` 的 `dsh` 声明、`cordis.patch.yml`、入口与导出映射 → 同步更新文档，确保 `npm run check` 仍通过。
 - 界面文案 → 同时更新 `locale/zh.json` 与 `locale/en.json`。

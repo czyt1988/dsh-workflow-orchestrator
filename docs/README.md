@@ -7,6 +7,8 @@
 - **应用文档**（`docs/user/`）——面向使用者，讲清楚怎么安装、怎么搭工作流、怎么执行与排障。
 - **开发文档**（`docs/dev/`）——面向贡献者，讲清楚架构、执行引擎、数据与接口契约、测试与发布流程。
 
+> 英文项目介绍见 [README.en.md](../README.en.md)（English）；仓库默认入口仍是中文版 [README.md](../README.md)。本目录下的用户/开发文档目前只有简体中文。
+
 > 文档中的截图均来自真实运行的插件（隔离 `DSH_HOME` + Playwright 全链路 E2E），不是设计稿；
 > 图片统一放在 [`docs/assets/images/`](assets/images/)，复现与更新方式见 [开发文档 · 测试](dev/testing.md)。
 

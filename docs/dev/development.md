@@ -46,7 +46,8 @@ dsh-plugin/
 │  └─ assets/images/        文档截图（15 张 PNG）
 ├─ cordis.patch.yml         bundle patch：插入宿主 loader 行
 ├─ package.json             插件清单与 npm scripts
-├─ README.md                项目说明与安装
+├─ README.md                项目说明与安装（默认中文版）
+├─ README.en.md             英文版项目说明
 ├─ AGENTS.md                仓库内编码代理约定
 ├─ LICENSE / CONTRIBUTING.md / CHANGELOG.md / .github/
 └─ .e2e/ .e2e-home/ .probe/ internal/   本地证据与排障材料（已 gitignore）
@@ -93,7 +94,7 @@ E2E 的细节（隔离环境、断言、截图采集）见 [测试](testing.md)�
 | `lib/client.js`、样式、面板交互 | 刷新页面（浏览器半区是页面加载时注册的） |
 | `lib/index.js`、`lib/host/*.js` | 通常需要重启 DSH；是否支持宿主 HMR 取决于 DSH/profile 配置，当前仓库未声明 |
 | `locale/*.json`、`package.json`、`cordis.patch.yml` | 重启 DSH；必要时在插件管理器里重新启用 |
-| `docs/`、`README.md` | 无需重启 |
+| `docs/`、`README.md`、`README.en.md` | 无需重启 |
 
 ### 4.4 确认加载成功
 
@@ -185,8 +186,8 @@ flowchart LR
 | 字段、上限、文件格式 | [数据模型](data-model.md)、用户文档中的画布/属性说明 |
 | 调度/停止/失败语义 | [执行引擎](execution-engine.md)、用户文档的运行与错误章节 |
 | UI 文案、布局、交互 | `docs/user/` 对应页面与截图 |
-| 安装方式、清单、版本 | `README.md`、[打包与发布](packaging-and-release.md)、`CHANGELOG.md` |
-| 命令、工具、CI | `README.md`、本文、[测试](testing.md) |
+| 安装方式、清单、版本 | `README.md`、`README.en.md`、[打包与发布](packaging-and-release.md)、`CHANGELOG.md` |
+| 命令、工具、CI | `README.md`、`README.en.md`、本文、[测试](testing.md) |
 
 文档写作规则：
 
