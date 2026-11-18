@@ -20,7 +20,7 @@
 | 4 | [HTTP API](http-api.md) | 全部路由、`{ok,value}` 信封、错误码、准入栅栏 | 请求 sequenceDiagram |
 | 5 | [测试](testing.md) | 单测 / 集成 / E2E 分层、79 条断言、截图采集 | 测试金字塔 flowchart |
 | 6 | [开发环境](development.md) | 目录结构、命令、link 联调、排障、编码与提交约定 | 开发循环 flowchart |
-| 7 | [打包与发布](packaging-and-release.md) | 插件包结构、两种安装、SemVer、发布清单 | 发布流程 flowchart |
+| 7 | [打包与发布](packaging-and-release.md) | 插件包结构、四种安装、SemVer、tag 驱动的自动化发布、插件索引收录 | 发布流程 flowchart |
 
 如果只想快速改一个 bug，最短路径是：读 [架构总览](architecture.md) 的「服务依赖」一节 → 找到对应文件 → 用 [开发环境](development.md) 的命令跑 `npm test` → 按 [测试](testing.md) 的加法补一个用例。
 
@@ -59,18 +59,22 @@ flowchart TB
 | [`lib/host/util.js`](../../lib/host/util.js) | 零依赖小工具：ID、截断、克隆、错误信息 | [`newId`](../../lib/host/util.js#L12) |
 | [`lib/client.js`](../../lib/client.js) | 浏览器半区：一级页面、画布、属性面板、日志、轮询 | [`__ModuleLoader__.load`](../../lib/client.js#L12) |
 | [`test/engine.test.mjs`](../../test/engine.test.mjs) | 引擎单测（32 个） | 测试接缝 [`executeTask`](../../lib/host/engine.js#L437) |
-| [`test/store-routes.test.mjs`](../../test/store-routes.test.mjs) | 存储往返、清洗、路由与准入栅栏（5 个） | 临时 `DSH_HOME` |
+| [`test/store-routes.test.mjs`](../../test/store-routes.test.mjs) | 存储往返、清洗、路由与准入栅栏（7 个） | 临时 `DSH_HOME` |
+| [`test/release.test.mjs`](../../test/release.test.mjs) | CHANGELOG 归档、版本比较与发布门禁单测（8 个） | [`changelog.mjs`](../../tools/lib/changelog.mjs) |
 | [`tools/e2e-full.cjs`](../../tools/e2e-full.cjs) | 隔离 `DSH_HOME` 的全链路 E2E（79 条断言，配置全部走环境变量） | [`bootstrapEnvironment`](../../tools/e2e-full.cjs#L215) |
 | [`tools/verify-package.mjs`](../../tools/verify-package.mjs) | 发布前包结构与仓库文件自检（`npm run check:package`） | [`check`](../../tools/verify-package.mjs#L29) |
 | [`tools/check-docs.mjs`](../../tools/check-docs.mjs) | 文档相对链接、图片、Mermaid 与敏感内容自检（`npm run check:docs`） | [`checkDocument`](../../tools/check-docs.mjs#L80) |
+| [`tools/verify-release.mjs`](../../tools/verify-release.mjs) | 发布门禁：tag / 版本号 / CHANGELOG / `engines.dsh`（`npm run release:check`） | `npm run release:check` |
+| [`tools/release-prepare.mjs`](../../tools/release-prepare.mjs) | 归档 `[Unreleased]`、升版本、同步文档里的版本描述 | `npm run release:prepare -- 0.2.0` |
+| [`tools/release-notes.mjs`](../../tools/release-notes.mjs) | 从 CHANGELOG 生成 GitHub Release 正文 | `node tools/release-notes.mjs v0.2.0` |
 | [`cordis.patch.yml`](../../cordis.patch.yml) | Bundle patch：向 profile 插入宿主半区的 loader 行 | [`- insert:`](../../cordis.patch.yml#L6) |
-| [`package.json`](../../package.json) | 插件清单：`dsh.bundle` / `dsh.client` / `manifestVersion` / `exports` / `files` | [`dsh`](../../package.json#L29) |
+| [`package.json`](../../package.json) | 插件清单：`dsh.bundle` / `dsh.client` / `manifestVersion` / `exports` / `files` | [`dsh`](../../package.json#L33) |
 
 ## 事实来源
 
 - **行为**：以 `lib/` 与 `test/` 的当前实现为准；文档中的阈值（并发 8、超时 6h、宽限 8s、日志上限等）都能在源码常量处找到引用。
 - **接口**：HTTP 路由以 [`lib/host/routes.js`](../../lib/host/routes.js) 为准；面板实际调用点在同文件的注释与 [`lib/client.js`](../../lib/client.js) 的 `call()`。
-- **DSH 侧契约**：插件只通过 Cordis 服务与 `window.__ModuleLoader__` 交互。仓库**没有声明** DSH 或 `peerDependencies` 版本，涉及 DSH 侧行为（slot 名称、`sessionController.prompt` 的 `mode` 取值等）时，文档会注明「需按 DSH 版本确认」。
+- **DSH 侧契约**：插件只通过 Cordis 服务与 `window.__ModuleLoader__` 交互。仓库用 `engines.dsh` 声明已验证的 DSH 范围（当前 `>=0.2.2-rc.3 <0.3.0-0`），但不声明 `peerDependencies`；涉及 DSH 侧行为（slot 名称、`sessionController.prompt` 的 `mode` 取值等）时，文档会注明「需按 DSH 版本确认」。
 
 ## 相关文档
 

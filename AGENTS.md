@@ -12,7 +12,7 @@
 - 画布与运行记录持久化到 `$DSH_HOME/workflow-orchestrator/workflows.json`。
 - **运行时零第三方依赖**：宿主半区只用 Cordis 服务；浏览器半区的 `react` 复用壳层模块表；无构建步骤。
 
-当前版本 `0.1.0`，MIT。仓库按 GitHub 开源项目组织，发布流程见 [docs/dev/packaging-and-release.md](docs/dev/packaging-and-release.md)。
+当前版本 `0.2.0`，MIT。仓库按 GitHub 开源项目组织，发布流程见 [docs/dev/packaging-and-release.md](docs/dev/packaging-and-release.md)。
 
 ## 2. 开始之前（必读顺序）
 
@@ -26,9 +26,11 @@
 ## 3. 常用命令
 
 ```powershell
-npm test          # 引擎 + 存储/路由单元测试（node:test，无需 DSH）
+npm test          # 引擎 + 存储/路由 + 发布工具单元测试（node:test，无需 DSH）
 npm run check     # 包结构与文档自检（CI 同款）
 npm run test:e2e  # 全链路 E2E（需要 DSH 桌面端 + Playwright + 模型凭据；耗时，谨慎使用）
+npm run release:prepare -- 0.3.0  # 归档 CHANGELOG、升版本、同步文档里的版本描述
+npm run release:check             # 发布门禁：版本 / engines.dsh / CHANGELOG / tag
 ```
 
 - `npm test` 必须全绿；改执行语义时**必须**补 `test/engine.test.mjs` 用例。
@@ -133,7 +135,8 @@ E2E 每次运行会在 `.e2e/` 生成 `NN-name.png`。文档引用的截图是�
 
 - 提交信息遵循 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/)：`feat|fix|docs|test|chore|ci|refactor|perf|build` + 可选 scope（`engine`、`store`、`routes`、`client`、`docs`、`repo`）。
 - 一个提交只做一件事；文档与代码必要时可同提交，但不要夹带无关改动。
-- 用户可见的变更写入 `CHANGELOG.md` 的 `[Unreleased]`；版本号遵循 SemVer，只改 `package.json` 与 `CHANGELOG.md`。
+- 用户可见的变更写入 `CHANGELOG.md` 的 `[Unreleased]`；版本号遵循 SemVer，发版时用 `npm run release:prepare -- <version>` 统一改写（`package.json`、`CHANGELOG.md` 与各文档里的版本描述），不要手工只改一处。
+- 发布由 `vX.Y.Z` tag 触发 `.github/workflows/release.yml`（测试 + 自检 → npm provenance 发布 → GitHub Release）；不要在本地手工 `npm publish`。打 tag 前必须跑 `npm run release:check`。
 - 发布前清单见 [docs/dev/packaging-and-release.md](docs/dev/packaging-and-release.md)；发布前应确认 `npm test`、`npm run check`、文档链接与截图全部就绪。
 
 ## 11. 明确禁止

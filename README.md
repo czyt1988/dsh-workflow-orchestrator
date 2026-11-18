@@ -119,16 +119,34 @@ flowchart LR
 
 ## 安装
 
-**前置条件**：已安装 DeepSeek Harness 桌面端（Node.js ≥ 20 仅用于本地开发）。
+**前置条件**：已安装 DeepSeek Harness 桌面端（Node.js ≥ 20 仅用于本地开发），DSH 版本需满足 `engines.dsh`（当前 `>=0.2.2-rc.3 <0.3.0-0`）。
 
-### 方式一：插件管理器安装（推荐）
+### 方式一：npm 安装（推荐）
+
+```powershell
+dsh plugin --profile desktop add dsh-workflow-orchestrator
+```
+
+把 `desktop` 换成你的 profile 名（桌面端默认 `desktop`）。插件会写入当前 profile 并自动启用，刷新页面后左侧栏出现 **「工作流编排」**。发布包带 npm provenance，可在 npm 包页面核对来源仓库与发布工作流。
+
+### 方式二：插件发现页安装
+
+DSH 不内置插件索引，需要先添加一次索引源（属于当前 profile）：
+
+1. **插件 → 实验性插件**，打开 **自定义插件索引**。
+2. 进入 **发现 → 添加索引源**，粘贴 `https://cdn.jsdelivr.net/npm/dsh-plugin-catalog/index.json`。
+3. 搜索 `workflow` 或 `dsh-workflow-orchestrator`，在卡片上点 **安装**。
+
+索引里的插件来自第三方，只添加你信任的索引源。收录细节见[打包与发布 · 收录到 DSH 插件索引](docs/dev/packaging-and-release.md#6-收录到-dsh-插件索引)。
+
+### 方式三：插件管理器安装本地目录（开发用）
 
 1. 打开 DSH 的 **设置 → 插件**（或左侧「插件」页）。
 2. 点击 **添加插件**，选择本地目录（本仓库根目录）。
 3. 插件会以 `link:` 方式写入当前 profile 并自动启用。
 4. 刷新页面，左侧栏出现 **「工作流编排」** 一级入口。
 
-### 方式二：手动挂载
+### 方式四：手动挂载
 
 1. 把本仓库链接进 profile 的 `node_modules`（以 Windows 默认 profile `desktop` 为例）：
 
@@ -237,13 +255,13 @@ flowchart LR
 | [HTTP API](docs/dev/http-api.md) | 全部 JSON 路由、请求/响应、错误码与准入栅栏 |
 | [开发指南](docs/dev/development.md) | 环境、目录、命令、本地联调、编码与提交约定 |
 | [测试](docs/dev/testing.md) | 单元测试、E2E 全链路、证据采集与 CI 边界 |
-| [打包与发布](docs/dev/packaging-and-release.md) | 插件清单、安装方式、版本与 GitHub 发布流程 |
+| [打包与发布](docs/dev/packaging-and-release.md) | 插件清单、四种安装方式、SemVer、tag 驱动的自动化发布与插件索引收录 |
 
 ## 目录结构
 
 ```text
 dsh-workflow-orchestrator/
-├── .github/                  # CI、Dependabot、Issue/PR 模板
+├── .github/                  # CI、tag 触发的发布工作流、Issue/PR 模板
 ├── docs/
 │   ├── README.md             # 文档总索引
 │   ├── user/                 # 应用文档（面向使用者）
@@ -255,7 +273,7 @@ dsh-workflow-orchestrator/
 │   └── host/                 # 存储、执行引擎、路由、选项目录
 ├── locale/                   # 插件管理器/设置页的中英文标题与描述
 ├── test/                     # node:test 单元测试
-├── tools/                    # 全链路 E2E 脚本、包结构自检
+├── tools/                    # E2E 脚本、包结构/文档自检、发布工具链
 ├── AGENTS.md                 # AI 编码代理的项目指引
 ├── CHANGELOG.md
 ├── CONTRIBUTING.md
@@ -266,6 +284,7 @@ dsh-workflow-orchestrator/
 ├── README.en.md              # 英文版 README
 ├── cordis.patch.yml          # bundle patch：向 profile 插入 loader 行
 ├── icon.svg                  # 插件图标
+├── screenshots.json          # 插件市场详情页截图清单
 └── package.json              # DSH 清单 + npm 元数据
 ```
 
@@ -282,9 +301,15 @@ npm run check
 
 # 全链路 E2E（需要 DSH 桌面端 + Playwright + 模型凭据）
 npm run test:e2e
+
+# 发布：归档 CHANGELOG + 升版本 + 同步文档，然后校验
+npm run release:prepare -- 0.2.0
+npm run release:check
 ```
 
 E2E 会在隔离的 `DSH_HOME` 中启动 `dsh --profile web`，用 Playwright 驱动真实浏览器并调用真实模型，证据（截图/JSON/日志）输出到 `.e2e/`，报告为 `.e2e/e2e-report.md`。它耗时且依赖本机环境，因此**不进入 CI**。
+
+发布由 `vX.Y.Z` tag 触发 [`.github/workflows/release.yml`](.github/workflows/release.yml)：先跑测试与自检，再以 npm provenance 发布并创建带 tarball 附件的 GitHub Release。完整流程见[打包与发布](docs/dev/packaging-and-release.md#4-自动化发布)。
 
 ## 已知限制
 

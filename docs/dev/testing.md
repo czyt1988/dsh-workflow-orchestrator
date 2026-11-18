@@ -2,12 +2,13 @@
 
 # 测试
 
-测试分三层，越往下越快、越往上越接近真实 DSH：
+测试分四层，越往下越快、越往上越接近真实 DSH：
 
 | 层级 | 文件 | 数量 | 需要 DSH？ | 典型耗时 |
 | --- | --- | --- | --- | --- |
 | 引擎单元测试 | [`test/engine.test.mjs`](../../test/engine.test.mjs) | 32 个用例 | 否（用假执行器） | 秒级 |
 | 存储/路由集成测试 | [`test/store-routes.test.mjs`](../../test/store-routes.test.mjs) | 7 个用例 | 否（临时目录 + 假 req/res） | 秒级 |
+| 发布工具单元测试 | [`test/release.test.mjs`](../../test/release.test.mjs) | 8 个用例 | 否（纯函数） | 毫秒级 |
 | 全链路 E2E | [`tools/e2e-full.cjs`](../../tools/e2e-full.cjs) | 79 条断言 | 是（隔离 `DSH_HOME` + 真实模型） | 分钟级 |
 
 ```mermaid
@@ -15,10 +16,12 @@ flowchart TB
   A["E2E · 79 条断言 · 真实 DSH / Chromium / 模型"]
   B["集成测试 · 7 个用例 · 存储往返 + 路由 + 准入"]
   C["单元测试 · 32 个用例 · DAG 调度语义、prompt 组装与完成判定"]
+  D["发布工具 · 8 个用例 · CHANGELOG 归档与发布门禁"]
   A --> B --> C
-  C -.-> D["npm test · 每次提交"]
-  B -.-> D
-  A -.-> E["npm run test:e2e · 发布前 / 改真实会话行为时"]
+  C -.-> E["npm test · 每次提交"]
+  B -.-> E
+  D -.-> E
+  A -.-> F["npm run test:e2e · 发布前 / 改真实会话行为时"]
 ```
 
 ## 1. 单元测试：执行引擎
@@ -28,7 +31,7 @@ flowchart TB
 ```powershell
 npm test
 # 等价于
-node --test test/engine.test.mjs test/store-routes.test.mjs
+node --test test/engine.test.mjs test/store-routes.test.mjs test/release.test.mjs
 ```
 
 引擎单测不启动 DSH：`WorkflowEngine` 构造函数接受 `options.executeTask` 作为测试接缝（[`lib/host/engine.js:437`](../../lib/host/engine.js#L437)），测试用 `createHarness()` 注入假执行器（[`test/engine.test.mjs:32`](../../test/engine.test.mjs#L32)）。假执行器返回 `{ sessionId, output }`，用 `deferred()` 控制完成时机，从而精确断言「谁先启动、谁在等谁」。完成判定另有 `createTurnHarness()`（[`test/engine.test.mjs:703`](../../test/engine.test.mjs#L703)），用假 `sessions` / `agents` / 可选 `subagents` 服务直接驱动 `waitForTurn()`。
@@ -209,7 +212,17 @@ flowchart LR
 4. 断言必须来自真实界面/接口行为，禁止手写固定 JSON 冒充结果；
 5. 新增断言会改变报告总数，同步更新本文的分布表。
 
-> 新增测试文件后，记得把它加入 [`package.json:22`](../../package.json#L22) 的 `scripts.test`，否则 `npm test` 不会执行。
+> 新增测试文件后，记得把它加入 [`package.json:23`](../../package.json#L23) 的 `scripts.test`，否则 `npm test` 不会执行。
+
+### 4.4 加发布工具用例
+
+发布工具是纯函数，直接在 [`test/release.test.mjs`](../../test/release.test.mjs) 里加用例：
+
+1. 用固定字符串构造一份最小 CHANGELOG（至少 `[Unreleased]`、一个旧版本段与两条链接定义）；
+2. 断言 `archiveRelease` 改写后的段落顺序、`[Unreleased]` 是否清空、compare / release 链接是否指向新版本；
+3. 断言 `changelogProblems` 在缺日期、未归档、链接不匹配时给出预期问题；
+4. 涉及新格式时先改 [`tools/lib/changelog.mjs`](../../tools/lib/changelog.mjs)，再补用例；
+5. 新增带版本号的文档时，同步 [`tools/release-prepare.mjs`](../../tools/release-prepare.mjs) 的 `VERSION_RULES`，否则 `release:prepare` 会因为匹配不到而失败（这是刻意的：宁可停下，也不要留下过期的版本号）。
 
 ## 5. 采集文档截图
 
@@ -237,7 +250,7 @@ flowchart LR
 | `run-from-node.png` | `24-run-from-node.png` | 从节点开始执行后的未执行节点、执行范围与启动日志 |
 
 3. 保持 1500×950 的界面比例与中文文案；截图里不要出现真实会话内容、个人路径或凭据；
-4. `npm run check` 会校验截图目录至少 8 张 PNG（[`tools/verify-package.mjs:212`](../../tools/verify-package.mjs#L212)），并检查 `docs/` 下的必备文件；其中的 `npm run check:docs` 还会校验所有文档的相对链接、图片、Mermaid 块与敏感内容（[`tools/check-docs.mjs:80`](../../tools/check-docs.mjs#L80)）；
+4. `npm run check` 会校验截图目录至少 8 张 PNG（[`tools/verify-package.mjs:239`](../../tools/verify-package.mjs#L239)），并检查 `docs/` 下的必备文件；其中的 `npm run check:docs` 还会校验所有文档的相对链接、图片、Mermaid 块与敏感内容（[`tools/check-docs.mjs:80`](../../tools/check-docs.mjs#L80)）；
 5. 用户文档引用截图时使用标准 Markdown 图片语法：路径指向 `../assets/images/` 下的 PNG，alt 用中文，下一行写 `*图 N：一句话说明。*`。
 
 ## 相关文档

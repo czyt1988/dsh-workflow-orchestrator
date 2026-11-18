@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-18
+
 ### Added
 
 - **判断节点**：新增 `judge` 节点类型。它会创建一个真实任务会话来评估上游任务输出；引擎在提示词末尾追加输出契约（最后一行输出 `WOF_DECISION: CONTINUE` 或 `WOF_DECISION: STOP`），判定 `STOP` 时整次工作流提前结束。支持配置无效判定处理（默认继续）、终止时在途任务策略；判定结果写入运行节点的 `decision`。判断节点对下游上下文透明，下游仍拿到被判断任务的输出。
@@ -17,7 +19,13 @@
 - **从任意节点开始执行**：任务节点属性区顶部新增「从此节点开始执行」按钮，只执行该节点及其通过有向边可达的下游节点，其余节点标记为「未执行」（`not-run`）且不会创建任务会话；运行记录新增 `startNodeId` 字段，属性区运行卡片显示本次「执行范围」。顶部「执行」仍是全量执行。
 - 节点状态新增 `not-run`（未执行），仅出现在范围执行中；它不算失败，也不参与整体 `failed` 判定。
 - **等待用户回复**：任务/判断节点里的 agent 调用 `ask_user_question` 向你提问后，节点不再被误判为失败或提前完成，而是进入「等待用户回复」状态：画布节点显示琥珀色「等待用户回复」，属性区列出待回答的问题并可一键打开任务会话；等待期间单节点超时暂停计时，你在任务会话里回答后节点自动继续执行到完成。检测同时覆盖阻塞式提问（提问卡住轮次）与限时提问超时后仍可回答两种宿主模式；宿主缺少会话投影服务时退回旧行为并记录 `WARN` 日志。
+- **自动化发布**：新增 `npm run release:prepare -- <version>`（归档 `[Unreleased]`、升版本、同步文档里的版本描述）、`npm run release:check`（版本号 / `engines.dsh` / CHANGELOG / tag 一致性门禁）与 `npm run release:notes`（从 CHANGELOG 生成 Release 正文）；新增 tag 触发的 `.github/workflows/release.yml`，先跑测试与自检，再以 npm provenance 发布并创建附带 tarball 的 GitHub Release。发布流程支持重跑：已发布的版本与已存在的 Release 会跳过。
+- **插件分发**：声明 `engines.dsh`（`>=0.2.2-rc.3 <0.3.0-0`），让插件市场与插件管理器在不兼容的 DSH 版本上拒绝安装；新增 `screenshots.json` 供插件市场详情页展示截图；文档补充 npm 安装、发现页安装与社区插件索引（awesome-dsh-plugin）收录流程。
 - **英文 README**：新增 [README.en.md](README.en.md)，与中文 [README.md](README.md) 内容对应；两篇第一行提供 English / 简体中文 切换入口，仓库默认入口仍是中文版。`package.json` 的 npm 发布白名单同时包含英文版。
+
+### Changed
+
+- 测试与自检：新增 `test/release.test.mjs`（8 个用例），`npm test` 覆盖发布工具；`npm run check` 校验 `engines.dsh`、发布脚本、`release.yml` 与 `screenshots.json`。
 
 ### Fixed
 
@@ -49,5 +57,6 @@
 - 首个版本的功能与内部接口仍可能调整；升级前请阅读本文件。
 - 已知限制见 [README.md](README.md) 的「已知限制」一节（只支持并行网关、每个任务节点只执行一次、不支持循环 / 重试 / 定时触发等）。
 
-[Unreleased]: https://github.com/czyt1988/dsh-workflow-orchestrator/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/czyt1988/dsh-workflow-orchestrator/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/czyt1988/dsh-workflow-orchestrator/releases/tag/v0.2.0
 [0.1.0]: https://github.com/czyt1988/dsh-workflow-orchestrator/releases/tag/v0.1.0

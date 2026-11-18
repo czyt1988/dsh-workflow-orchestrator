@@ -8,7 +8,7 @@
 
 | 项 | 要求 | 依据 |
 | --- | --- | --- |
-| Node.js | `>=20`；仓库 `.nvmrc` 建议 22 | [`package.json:18`](../../package.json#L18)、[`.nvmrc`](../../.nvmrc) |
+| Node.js | `>=20`；仓库 `.nvmrc` 建议 22 | [`package.json:19`](../../package.json#L19)、[`.nvmrc`](../../.nvmrc) |
 | DSH | 桌面端，或 `dsh web`（用于真实联调/E2E） | 插件通过 Cordis 服务运行，必须挂在 DSH profile 里 |
 | Git | 任意近期版本 | 仓库按 GitHub 开源项目组织 |
 | Playwright + Chromium | 仅 E2E 需要；脚本通过 `DSH_E2E_PLAYWRIGHT_CORE` / `CHROME_PATH` 定位，未设置时用 Playwright 自带浏览器 | [`tools/e2e-full.cjs`](../../tools/e2e-full.cjs) 顶部 |
@@ -32,12 +32,17 @@ dsh-plugin/
 │     ├─ catalogs.js        工作区/模式/权限/模型目录聚合
 │     └─ util.js            零依赖小工具
 ├─ test/
-│  ├─ engine.test.mjs       调度语义单测（12 个）
-│  └─ store-routes.test.mjs 存储/清洗/路由/准入单测（5 个）
+│  ├─ engine.test.mjs       调度语义单测（32 个）
+│  ├─ store-routes.test.mjs 存储/清洗/路由/准入单测（7 个）
+│  └─ release.test.mjs      CHANGELOG 归档与发布门禁单测（8 个）
 ├─ tools/
 │  ├─ e2e-full.cjs          隔离 DSH_HOME 的全链路 E2E
 │  ├─ verify-package.mjs    发布前包结构与仓库文件自检
-│  └─ check-docs.mjs        文档链接 / Mermaid / 敏感内容自检
+│  ├─ check-docs.mjs        文档链接 / Mermaid / 敏感内容自检
+│  ├─ verify-release.mjs    发布门禁（tag / 版本 / CHANGELOG / engines.dsh）
+│  ├─ release-prepare.mjs   归档 CHANGELOG、升版本、同步文档版本描述
+│  ├─ release-notes.mjs     从 CHANGELOG 生成 GitHub Release 正文
+│  └─ lib/                  发布工具共享：CHANGELOG 解析、版本描述同步
 ├─ locale/                  zh.json / en.json（插件管理器标题与描述）
 ├─ docs/
 │  ├─ README.md             文档首页
@@ -46,10 +51,12 @@ dsh-plugin/
 │  └─ assets/images/        文档截图（15 张 PNG）
 ├─ cordis.patch.yml         bundle patch：插入宿主 loader 行
 ├─ package.json             插件清单与 npm scripts
+├─ screenshots.json         插件市场详情页截图清单
 ├─ README.md                项目说明与安装（默认中文版）
 ├─ README.en.md             英文版项目说明
 ├─ AGENTS.md                仓库内编码代理约定
-├─ LICENSE / CONTRIBUTING.md / CHANGELOG.md / .github/
+├─ .github/workflows/       ci.yml（测试与自检）、release.yml（tag 触发发布）
+├─ LICENSE / CONTRIBUTING.md / CHANGELOG.md
 └─ .e2e/ .e2e-home/ .probe/ internal/   本地证据与排障材料（已 gitignore）
 ```
 
@@ -57,21 +64,24 @@ dsh-plugin/
 
 | 命令 | 实际执行 | 用途 |
 | --- | --- | --- |
-| `npm test` | `node --test test/engine.test.mjs test/store-routes.test.mjs` | 单测全绿是提交前提（[`package.json:22`](../../package.json#L22)） |
-| `npm run test:watch` | 同上加 `--watch` | 改引擎时边写边跑（[`package.json:23`](../../package.json#L23)） |
-| `npm run test:e2e` | `node tools/e2e-full.cjs` | 真实 DSH + 浏览器 + 模型的全链路（[`package.json:24`](../../package.json#L24)） |
-| `npm run check` | `node tools/verify-package.mjs && node tools/check-docs.mjs` | 包结构 + 文档自检（[`package.json:25`](../../package.json#L25)） |
-| `npm run check:package` | `node tools/verify-package.mjs` | 只跑包结构/清单/仓库文件自检（[`package.json:26`](../../package.json#L26)） |
-| `npm run check:docs` | `node tools/check-docs.mjs` | 只跑文档链接、Mermaid、敏感内容自检（[`package.json:27`](../../package.json#L27)） |
+| `npm test` | `node --test test/engine.test.mjs test/store-routes.test.mjs test/release.test.mjs` | 单测全绿是提交前提（[`package.json:23`](../../package.json#L23)） |
+| `npm run test:watch` | 同上加 `--watch` | 改引擎时边写边跑（[`package.json:24`](../../package.json#L24)） |
+| `npm run test:e2e` | `node tools/e2e-full.cjs` | 真实 DSH + 浏览器 + 模型的全链路（[`package.json:25`](../../package.json#L25)） |
+| `npm run check` | `node tools/verify-package.mjs && node tools/check-docs.mjs` | 包结构 + 文档自检（[`package.json:26`](../../package.json#L26)） |
+| `npm run check:package` | `node tools/verify-package.mjs` | 只跑包结构/清单/仓库文件自检（[`package.json:27`](../../package.json#L27)） |
+| `npm run check:docs` | `node tools/check-docs.mjs` | 只跑文档链接、Mermaid、敏感内容自检（[`package.json:28`](../../package.json#L28)） |
+| `npm run release:prepare -- 0.2.0` | `node tools/release-prepare.mjs 0.2.0` | 归档 CHANGELOG、升版本、同步文档里的版本描述（[`package.json:30`](../../package.json#L30)） |
+| `npm run release:check` | `node tools/verify-release.mjs` | 发布门禁：版本、`engines.dsh`、CHANGELOG 与 tag 一致性（[`package.json:29`](../../package.json#L29)） |
+| `npm run release:notes` | `node tools/release-notes.mjs` | 从 CHANGELOG 生成 GitHub Release 正文（[`package.json:31`](../../package.json#L31)） |
 | `node --test` | Node 内置测试框架直接发现 `test/` | 想跑全部测试文件时可用 |
 
-> `npm test` 的脚本里写死了两个测试文件。新增第三个测试文件后，必须同步修改 [`package.json:22`](../../package.json#L22) 的 `scripts.test`，否则 CI 与本地都不会执行到它。
+> `npm test` 的脚本里写死了三个测试文件。新增测试文件后，必须同步修改 [`package.json:23`](../../package.json#L23) 的 `scripts.test`，否则 CI 与本地都不会执行到它。
 
 E2E 的细节（隔离环境、断言、截图采集）见 [测试](testing.md)。`npm run check` 的检查项见 [打包与发布](packaging-and-release.md)。
 
 ## 4. 本地联调
 
-### 4.1 方式一：插件管理器安装（推荐）
+### 4.1 方式一：插件管理器安装本地目录（开发推荐）
 
 1. 启动 DSH 桌面端。
 2. 打开 **设置 → 插件**（或左侧「插件」页），选择 **添加插件**。
@@ -194,7 +204,7 @@ flowchart LR
 - 简体中文、GitHub 风格 Markdown，UTF-8、LF、无 BOM、无 tab；
 - 每篇开头有面包屑，代码引用带相对链接与行号；
 - 不写本机绝对路径、token、Cookie、个人会话内容；路径示例用 `D:\path\to\...` 占位；
-- 文档改动后至少跑 `npm run check`：`verify-package.mjs` 会检查 `docs/dev/README.md`、`docs/user/README.md`、截图数量等仓库级文件是否齐全（[`tools/verify-package.mjs:188`](../../tools/verify-package.mjs#L188)），`check-docs.mjs` 会扫描全仓库 Markdown 的相对链接、图片、Mermaid 代码块与敏感内容（[`tools/check-docs.mjs:80`](../../tools/check-docs.mjs#L80)）。
+- 文档改动后至少跑 `npm run check`：`verify-package.mjs` 会检查 `docs/dev/README.md`、`docs/user/README.md`、截图数量等仓库级文件是否齐全（[`tools/verify-package.mjs:212`](../../tools/verify-package.mjs#L212)），`check-docs.mjs` 会扫描全仓库 Markdown 的相对链接、图片、Mermaid 代码块与敏感内容（[`tools/check-docs.mjs:80`](../../tools/check-docs.mjs#L80)）。
 
 ## 相关文档
 

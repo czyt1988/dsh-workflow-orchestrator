@@ -121,16 +121,34 @@ Implementation details are in the [architecture guide](docs/dev/architecture.md)
 
 ## Installation
 
-**Prerequisites**: DeepSeek Harness desktop must be installed (Node.js ≥ 20 is only needed for local development).
+**Prerequisites**: DeepSeek Harness desktop must be installed (Node.js ≥ 20 is only needed for local development), and the DSH version must satisfy `engines.dsh` (currently `>=0.2.2-rc.3 <0.3.0-0`).
 
-### Option 1: plugin manager (recommended)
+### Option 1: npm (recommended)
+
+```powershell
+dsh plugin --profile desktop add dsh-workflow-orchestrator
+```
+
+Replace `desktop` with your profile name (the desktop app uses `desktop` by default). The plugin is written into the current profile and enabled automatically; refresh the page and a first-level **Workflow Orchestrator** entry appears in the sidebar. Published tarballs carry npm provenance, so the source repository and workflow are verifiable on the npm package page.
+
+### Option 2: plugin discovery page
+
+DSH ships no plugin index, so add one index source once (per profile):
+
+1. Open **Plugins → Experimental plugins** and turn on **Custom plugin indexes**.
+2. Go to **Discover → Add index source** and paste `https://cdn.jsdelivr.net/npm/dsh-plugin-catalog/index.json`.
+3. Search for `workflow` or `dsh-workflow-orchestrator` and click **Install** on the card.
+
+Listed plugins are third-party content; only add index sources you trust. See [Packaging and release](docs/dev/packaging-and-release.md#6-收录到-dsh-插件索引) for how this repository is listed (in Chinese).
+
+### Option 3: plugin manager, local directory (development)
 
 1. Open DSH **Settings → Plugins** (or the "Plugins" page in the sidebar).
 2. Click **Add plugin** and choose the local directory (the root of this repository).
 3. The plugin is added to the current profile as a `link:` dependency and enabled automatically.
 4. Refresh the page; a first-level **Workflow Orchestrator** entry appears in the sidebar.
 
-### Option 2: manual mount
+### Option 4: manual mount
 
 1. Link this repository into the profile's `node_modules` (using the default Windows profile `desktop` as an example):
 
@@ -239,13 +257,13 @@ The documentation is split into **user guides** (for people using the plugin) an
 | [HTTP API](docs/dev/http-api.md) | Every JSON route, request/response shape, error codes and the admission gate |
 | [Development guide](docs/dev/development.md) | Environment, layout, commands, local debugging, coding and commit conventions |
 | [Testing](docs/dev/testing.md) | Unit tests, full-path E2E, evidence capture and CI boundaries |
-| [Packaging and release](docs/dev/packaging-and-release.md) | Plugin manifest, installation methods, versioning and the GitHub release flow |
+| [Packaging and release](docs/dev/packaging-and-release.md) | Plugin manifest, four installation methods, versioning, tag-driven automated releases and plugin-index listing |
 
 ## Repository layout
 
 ```text
 dsh-workflow-orchestrator/
-├── .github/                  # CI, Dependabot, issue/PR templates
+├── .github/                  # CI, tag-driven release workflow, issue/PR templates
 ├── docs/
 │   ├── README.md             # documentation index
 │   ├── user/                 # user guides (for plugin users)
@@ -257,7 +275,7 @@ dsh-workflow-orchestrator/
 │   └── host/                 # store, execution engine, routes, catalogs
 ├── locale/                   # Chinese/English plugin title and description
 ├── test/                     # node:test unit tests
-├── tools/                    # full-path E2E script and package self-checks
+├── tools/                    # E2E, package/docs self-checks and release tooling
 ├── AGENTS.md                 # project guide for AI coding agents
 ├── CHANGELOG.md
 ├── CONTRIBUTING.md
@@ -268,6 +286,7 @@ dsh-workflow-orchestrator/
 ├── README.en.md              # this English README
 ├── cordis.patch.yml          # bundle patch: inserts the loader row into the profile
 ├── icon.svg                  # plugin icon
+├── screenshots.json          # screenshots shown on the plugin-market detail page
 └── package.json              # DSH manifest + npm metadata
 ```
 
@@ -284,9 +303,15 @@ npm run check
 
 # Full-path E2E (requires the DSH desktop app, Playwright and model credentials)
 npm run test:e2e
+
+# Release: archive the CHANGELOG, bump the version, sync the docs, then verify
+npm run release:prepare -- 0.2.0
+npm run release:check
 ```
 
 E2E starts `dsh --profile web` against an isolated `DSH_HOME`, drives a real browser with Playwright and calls real models. Evidence (screenshots, JSON, logs) is written to `.e2e/` and the report is `.e2e/e2e-report.md`. It is slow and machine-dependent, so it does **not** run in CI.
+
+Releases are driven by a `vX.Y.Z` tag in [`.github/workflows/release.yml`](.github/workflows/release.yml): it runs the tests and self-checks, publishes to npm with provenance, and creates a GitHub Release with the tarball attached. See [Packaging and release](docs/dev/packaging-and-release.md#4-自动化发布) for the full flow (in Chinese).
 
 ## Known limitations
 

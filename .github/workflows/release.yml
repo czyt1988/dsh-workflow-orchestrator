@@ -1,0 +1,112 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Package and docs self-checks
+        run: npm run check
+
+      - name: Release gate (tag, version, changelog)
+        run: node tools/verify-release.mjs --tag "$GITHUB_REF_NAME"
+
+  publish:
+    name: Publish to npm and GitHub
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Require the tag commit to be on main
+        run: |
+          git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "::error::Tag $GITHUB_REF_NAME is not on main; refusing to publish."
+            exit 1
+          fi
+
+      # Trusted publishing (OIDC) and --provenance both need npm >= 11.5.1.
+      - name: Upgrade npm for trusted publishing
+        run: npm install --global npm@^11.5.1
+
+      - name: Pack the npm tarball
+        run: |
+          mkdir -p dist
+          npm pack --pack-destination dist
+
+      - name: Publish to npm
+        env:
+          # Set this repository secret only for the very first publish: npm can only
+          # store a trusted publisher for a package that already exists. After that,
+          # delete the secret and publishing authenticates through OIDC alone.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          registry="https://registry.npmjs.org"
+
+          if npm view "${name}@${version}" version --registry "$registry" > /dev/null 2>&1; then
+            echo "::notice::${name}@${version} is already published; skipping npm publish."
+            exit 0
+          fi
+
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            unset NODE_AUTH_TOKEN
+          fi
+
+          npm publish --provenance --access public --registry "$registry"
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            echo "::notice::Release $GITHUB_REF_NAME already exists; skipping."
+            exit 0
+          fi
+          node tools/release-notes.mjs "$GITHUB_REF_NAME" > release-notes.md
+          gh release create "$GITHUB_REF_NAME" dist/*.tgz \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file release-notes.md

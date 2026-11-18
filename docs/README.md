@@ -59,7 +59,7 @@ flowchart TD
 
 | 文档 | 你会看到 |
 | --- | --- |
-| [快速开始](user/getting-started.md) | 两种安装方式、打开入口、第一个 A→B 工作流、安装验证 |
+| [快速开始](user/getting-started.md) | 四种安装方式、打开入口、第一个 A→B 工作流、安装验证 |
 | [界面导览](user/interface.md) | 工具栏、节点面板、画布、消息窗口、属性区与空态、工作区配色、快捷键 |
 | [搭建工作流](user/building-workflows.md) | 任务 / 判断 / 终止节点与并行网关、添加与连线、属性字段逐项说明、执行前校验、从某个节点开始执行 |
 | [执行与监控](user/running-and-monitoring.md) | 四类拓扑、从节点开始执行的范围、判断/终止节点的提前结束、节点与运行状态、日志、并发上限、真实任务会话 |
@@ -76,7 +76,7 @@ flowchart TD
 | [HTTP API](dev/http-api.md) | 全部路由、请求/响应信封、错误码、准入栅栏 |
 | [开发指南](dev/development.md) | 环境、目录、命令、本地联调、调试、编码与提交约定 |
 | [测试](dev/testing.md) | 单元测试与 E2E 全链路、断言覆盖、证据采集、CI 边界 |
-| [打包与发布](dev/packaging-and-release.md) | DSH 插件清单、安装方式、SemVer、GitHub 发布清单 |
+| [打包与发布](dev/packaging-and-release.md) | DSH 插件清单、四种安装方式、SemVer、tag 驱动的自动化发布与插件索引收录 |
 
 ## 界面截图资产
 

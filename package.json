@@ -1,6 +1,6 @@
 {
   "name": "dsh-workflow-orchestrator",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Visual workflow orchestrator for DeepSeek Harness: chain task sessions with a parallel gateway, edit node prompts in a right-side inspector, and watch a run log.",
   "type": "module",
   "main": "lib/index.js",
@@ -16,15 +16,19 @@
     "./package.json": "./package.json"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20",
+    "dsh": ">=0.2.2-rc.3 <0.3.0-0"
   },
   "scripts": {
-    "test": "node --test test/engine.test.mjs test/store-routes.test.mjs",
-    "test:watch": "node --test --watch test/engine.test.mjs test/store-routes.test.mjs",
+    "test": "node --test test/engine.test.mjs test/store-routes.test.mjs test/release.test.mjs",
+    "test:watch": "node --test --watch test/engine.test.mjs test/store-routes.test.mjs test/release.test.mjs",
     "test:e2e": "node tools/e2e-full.cjs",
     "check": "node tools/verify-package.mjs && node tools/check-docs.mjs",
     "check:package": "node tools/verify-package.mjs",
-    "check:docs": "node tools/check-docs.mjs"
+    "check:docs": "node tools/check-docs.mjs",
+    "release:check": "node tools/verify-release.mjs",
+    "release:prepare": "node tools/release-prepare.mjs",
+    "release:notes": "node tools/release-notes.mjs"
   },
   "dsh": {
     "bundle": {

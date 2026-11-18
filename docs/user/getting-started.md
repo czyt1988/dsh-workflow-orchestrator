@@ -8,7 +8,7 @@
 
 开始之前请确认：
 
-1. 已安装并运行支持第三方插件的 **DSH**（桌面版，或带 Web 界面的 profile）。插件包版本为 **0.1.0**。
+1. 已安装并运行支持第三方插件的 **DSH**（桌面版，或带 Web 界面的 profile）。插件包版本为 **0.2.0**。
 2. DSH 中至少有一个**工作区**。任务节点执行时会在工作区里新建任务会话，没有工作区时面板会提示「当前没有可用工作区」。
 3. DSH 里已配置可用的模型（至少一个模型提供商）。执行时会使用节点上选择的模型，未单独选择时使用 DSH 的默认模型。
 4. 如果你要手动挂载插件，请准备 PowerShell；插件的宿主运行在 DSH 自带的 Node.js 中（`package.json` 声明 `node >= 20`）。
@@ -16,16 +16,32 @@
 
 ## 安装插件
 
-插件是一个**本地目录插件**，通过 `package.json` 的 `dsh.bundle.patch` 与 `dsh.client` 声明自己。下面两种方式任选其一。
+插件可以通过 npm、插件发现页或本地目录安装。下面四种方式任选其一，装完都可用「验证安装」一节确认。
 
-### 方式一：插件管理器安装（推荐）
+### 方式一：npm 安装（推荐）
+
+在 PowerShell 里执行（把 `desktop` 换成你的 profile 名，桌面端默认就是 `desktop`）：
+
+```powershell
+dsh plugin --profile desktop add dsh-workflow-orchestrator
+```
+
+安装后刷新页面；当前 profile 未开启热更新时，重启 DSH 再打开。
+
+### 方式二：插件发现页安装
+
+1. 打开 DSH，进入「插件」页，在**实验性插件**里打开「自定义插件索引」。
+2. 切到**发现**，点击「添加索引源」，粘贴 `https://cdn.jsdelivr.net/npm/dsh-plugin-catalog/index.json`。
+3. 搜索 `workflow`，在「工作流编排」卡片上点「安装」，确认来源后完成。
+
+### 方式三：插件管理器安装本地目录（开发用）
 
 1. 打开 DSH，在左侧栏进入「插件」页（也可以从设置进入「插件」）。
 2. 选择「添加插件」，输入或选择本地插件目录，例如 `D:\path\to\plugin`。
 3. 选择**本地目录**安装。插件会以 `link:` 的方式加入当前 profile 并在安装后启用。
 4. 刷新页面；如果当前 profile 未开启热更新，请重启 DSH 后再打开。
 
-### 方式二：手动挂载（junction + profile bundles）
+### 方式四：手动挂载（junction + profile bundles）
 
 适合插件管理器不可用，或你希望自己控制 profile 的场景。假设使用默认的桌面 profile `desktop`：
 

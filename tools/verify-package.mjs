@@ -120,6 +120,33 @@ if (typeof patchEntry === 'string') {
 }
 
 // ---------------------------------------------------------------------------
+// 2.5 兼容性声明与发布工具链
+// ---------------------------------------------------------------------------
+const dshRange = manifest.engines?.dsh
+check(
+  'engines.dsh 已声明（插件市场与插件管理器据此判断兼容性）',
+  typeof dshRange === 'string' && dshRange.trim() !== '' && !dshRange.startsWith('workspace:'),
+  String(dshRange),
+)
+check(
+  'engines.dsh 是 SemVer 范围',
+  typeof dshRange === 'string' && /\d/.test(dshRange) && /^[0-9A-Za-z\s<>=~^*xX.|+-]+$/.test(dshRange),
+  String(dshRange),
+)
+for (const tool of [
+  'tools/verify-release.mjs',
+  'tools/release-prepare.mjs',
+  'tools/release-notes.mjs',
+  'tools/lib/changelog.mjs',
+  'tools/lib/version-sync.mjs',
+  'test/release.test.mjs',
+  '.github/workflows/release.yml',
+  'screenshots.json',
+]) {
+  check(`发布工具链文件存在：${tool}`, await exists(join(ROOT, tool)))
+}
+
+// ---------------------------------------------------------------------------
 // 3. 入口与导出
 // ---------------------------------------------------------------------------
 check('main 指向 lib/index.js', manifest.main === 'lib/index.js', String(manifest.main))
@@ -216,6 +243,25 @@ if (await exists(imagesDir)) {
   check('文档截图不少于 8 张', images.length >= 8, `当前 ${images.length} 张`)
 } else {
   check('文档截图目录存在', false, relative(ROOT, imagesDir))
+}
+
+// 插件市场（dsh-market / awesome-dsh-plugin）会读取仓库根的 screenshots.json。
+const screenshotsText = await readText(join(ROOT, 'screenshots.json'))
+if (screenshotsText !== undefined) {
+  let screenshots
+  try {
+    screenshots = JSON.parse(screenshotsText)
+  } catch (error) {
+    failures.push(`screenshots.json 不是合法 JSON：${error.message}`)
+  }
+  const entries = Array.isArray(screenshots) ? screenshots : screenshots?.screenshots
+  check('screenshots.json 是 1–8 张图片的数组', Array.isArray(entries) && entries.length >= 1 && entries.length <= 8)
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    check(
+      `screenshots.json 条目存在：${entry}`,
+      typeof entry === 'string' && !entry.startsWith('/') && !entry.split('/').includes('..') && (await exists(join(ROOT, entry))),
+    )
+  }
 }
 
 // ---------------------------------------------------------------------------
