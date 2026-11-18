@@ -1,4 +1,8 @@
 <p align="center">
+  简体中文 · <a href="README.en.md"><strong>English</strong></a>
+</p>
+
+<p align="center">
   <img src="icon.svg" width="72" height="72" alt="dsh-workflow-orchestrator 图标" />
 </p>
 
@@ -15,10 +19,6 @@
   <a href="package.json"><img src="https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=node.js&logoColor=white" alt="Node.js >= 20" /></a>
   <a href="docs/user/getting-started.md"><img src="https://img.shields.io/badge/DSH-%E6%8F%92%E4%BB%B6-4c8bf5" alt="DSH 插件" /></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome" /></a>
-</p>
-
-<p align="center">
-  <a href="README.en.md"><img src="https://img.shields.io/badge/English-README-2563eb?style=flat-square" alt="Read this README in English" /></a>
 </p>
 
 > **一句话**：在 DeepSeek Harness（DSH）左侧栏新增一级页面「工作流编排」——在画布上拖入任务节点、连线、点「执行」，每个任务节点都会在指定工作区里**新建一个真实的 DSH 任务会话**，串行、并行与汇合都由连线决定，执行过程实时写进底部消息窗口。
@@ -320,7 +320,3 @@ E2E 会在隔离的 `DSH_HOME` 中启动 `dsh --profile web`，用 Playwright �
 ## License
 
 [MIT](LICENSE) © 2026 czyt1988
-
----
-
-> English version: [README.en.md](README.en.md).

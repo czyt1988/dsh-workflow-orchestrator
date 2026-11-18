@@ -1,4 +1,8 @@
 <p align="center">
+  <a href="README.md"><strong>简体中文</strong></a> · English
+</p>
+
+<p align="center">
   <img src="icon.svg" width="72" height="72" alt="dsh-workflow-orchestrator icon" />
 </p>
 
@@ -15,10 +19,6 @@
   <a href="package.json"><img src="https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=node.js&logoColor=white" alt="Node.js >= 20" /></a>
   <a href="docs/user/getting-started.md"><img src="https://img.shields.io/badge/DSH-plugin-4c8bf5" alt="DSH plugin" /></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome" /></a>
-</p>
-
-<p align="center">
-  <a href="README.md"><img src="https://img.shields.io/badge/%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-README-dc2626?style=flat-square" alt="Read this README in Chinese" /></a>
 </p>
 
 > **In one sentence**: add a first-level **Workflow Orchestrator** page (「工作流编排」 in the Chinese UI) to the DeepSeek Harness (DSH) sidebar. Drag task nodes onto a canvas, connect them and click **Run**: every task node creates a **real DSH task session** in the selected workspace. Sequential, parallel and joined execution is driven entirely by the edges, and progress streams into the message panel at the bottom.
