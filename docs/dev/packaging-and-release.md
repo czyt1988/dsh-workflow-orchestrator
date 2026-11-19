@@ -185,12 +185,22 @@ git push origin main v0.2.0
 
 npm 只允许给**已存在**的包配置 Trusted Publisher，所以第一次发布需要一个一次性令牌，之后不再需要：
 
-1. 在 npm 生成一个 **Automation** 类型的 token，存进仓库 Secrets，名为 `NPM_TOKEN`；
-2. 推送 `v0.2.0` tag，`release.yml` 用这个 token 完成首发（仍然带 `--provenance`）；
-3. 打开 npm 包页面 → **Settings → Trusted Publisher**，填写：仓库 `OWNER/REPO`、工作流文件名 `release.yml`、允许的动作 `npm publish`（若你给工作流配了 environment，这里也要填同名 environment）；
-4. **删除 `NPM_TOKEN` secret**。此后发布靠 GitHub OIDC 换取短期凭据，仓库里不再有任何长期 npm 凭据。
+1. 在 npm 生成令牌（2026-11 起默认是 **Granular Access Token**，旧的 Automation 类型逐步下线）：<https://www.npmjs.com/settings/~/tokens> → **Generate New Token** →
+   - **Permissions**：`Read and write (publish and stage)`（不要选 stage only，那是「先暂存等人工批准」的新流程）；
+   - **Select packages**：`All packages` —— 新包还没有版本可选，只勾已有包会导致发布会 404；
+   - **Bypass two-factor authentication**：勾选，否则 CI 发布会被要求输入 OTP 而失败；
+   - **Organizations / IP ranges**：留空。
+2. 把令牌存进仓库 **Settings → Secrets and variables → Actions**，名为 `NPM_TOKEN`（必须是 *Repository secret*，不是 Environment secret）。
+3. 推送 `vX.Y.Z` tag，`release.yml` 用这个令牌完成首发（仍然带 `--provenance`）。
+4. 打开 npm 包页面 → **Settings → Trusted Publisher**，填写：仓库 `OWNER/REPO`、工作流文件名 `release.yml`、允许的动作 `npm publish`（若你给工作流配了 environment，这里也要填同名 environment）；
+5. **删除 `NPM_TOKEN` secret**。此后发布靠 GitHub OIDC 换取短期凭据，仓库里不再有任何长期 npm 凭据。
 
-> 首次发布也可以在本地用 `npm publish` 完成，但产物就会与 CI 走两条路径；推荐仍用上面的 CI 路径。
+两个容易踩的坑：
+
+- **npm 只从 `.npmrc` 读凭据**：单独设置 `NODE_AUTH_TOKEN` 环境变量是无效的（`npm whoami` 仍返回 `ENEEDAUTH`）。工作流在检测到 `NPM_TOKEN` 时把它写进 `~/.npmrc`，并先跑一次 `npm whoami` 预检；令牌无效会直接给出明确错误，而不是让 `npm publish` 模糊失败。
+- **首次发布会多出一个 `0.0.0-stage` 版本**：这是 npm 给带 stage 权限的 granular token 自动创建的占位版本（描述为 *Temporary package placeholder for staged publishing*），不是发布失败，也不会成为 `latest`，通常无需处理。
+
+> 首次发布也可以在本地用 `npm publish` 完成，但产物就会与 CI 走两条路径，且没有 provenance；推荐仍用上面的 CI 路径。
 
 ### 4.5 失败与重跑
 

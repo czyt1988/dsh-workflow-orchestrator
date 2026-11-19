@@ -15,6 +15,7 @@
 
 <p align="center">
   <a href="https://github.com/czyt1988/dsh-workflow-orchestrator/actions/workflows/ci.yml"><img src="https://github.com/czyt1988/dsh-workflow-orchestrator/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://www.npmjs.com/package/dsh-workflow-orchestrator"><img src="https://img.shields.io/npm/v/dsh-workflow-orchestrator.svg" alt="npm" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
   <a href="package.json"><img src="https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=node.js&logoColor=white" alt="Node.js >= 20" /></a>
   <a href="docs/user/getting-started.md"><img src="https://img.shields.io/badge/DSH-plugin-4c8bf5" alt="DSH plugin" /></a>
