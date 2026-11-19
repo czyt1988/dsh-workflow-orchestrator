@@ -91,7 +91,16 @@ jobs:
             exit 0
           fi
 
-          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+          # npm reads credentials only from .npmrc; a bare NODE_AUTH_TOKEN environment
+          # variable is ignored (verified with npm 11). Trusted publishing (OIDC) needs
+          # no token, so the file is written only while the bootstrap secret still exists.
+          if [ -n "${NODE_AUTH_TOKEN:-}" ]; then
+            printf '//registry.npmjs.org/:_authToken=%s\n' "$NODE_AUTH_TOKEN" > "$HOME/.npmrc"
+            if ! npm whoami --registry "$registry"; then
+              echo "::error::NPM_TOKEN is missing, invalid or expired; fix the repository secret and re-run this tag."
+              exit 1
+            fi
+          else
             unset NODE_AUTH_TOKEN
           fi
 
