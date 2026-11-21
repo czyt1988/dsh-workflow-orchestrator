@@ -32,8 +32,8 @@ dsh-plugin/
 │     ├─ catalogs.js        工作区/模式/权限/模型目录聚合
 │     └─ util.js            零依赖小工具
 ├─ test/
-│  ├─ engine.test.mjs       调度语义单测（32 个）
-│  ├─ store-routes.test.mjs 存储/清洗/路由/准入单测（7 个）
+│  ├─ engine.test.mjs       调度语义单测（60 个）
+│  ├─ store-routes.test.mjs 存储/清洗/路由/准入单测（11 个）
 │  └─ release.test.mjs      CHANGELOG 归档与发布门禁单测（8 个）
 ├─ tools/
 │  ├─ e2e-full.cjs          隔离 DSH_HOME 的全链路 E2E
@@ -143,7 +143,7 @@ flowchart LR
 | 权限/模型没生效 | 运行日志里的 `warn` | 权限预设或模型选择失败，插件已降级沿用默认值 |
 | E2E 起不来 | 端口占用、Chrome 路径、`playwright-core` 路径、凭据文件 | 脚本顶部常量是**本机路径**，换机器要改；用 `--port` 换端口 |
 
-日志统一前缀 `workflow-orchestrator:`（[`lib/host/engine.js:477`](../../lib/host/engine.js#L477)、[`lib/host/store.js:241`](../../lib/host/store.js#L241)），在 DSH 日志里直接搜这个前缀即可。
+日志统一前缀 `workflow-orchestrator:`（[`lib/host/engine.js:988`](../../lib/host/engine.js#L988)、[`lib/host/store.js:374`](../../lib/host/store.js#L374)），在 DSH 日志里直接搜这个前缀即可。
 
 ## 6. 编码约定
 
@@ -163,8 +163,8 @@ flowchart LR
 
 ### 6.3 输入与安全
 
-- 所有来自客户端的字段都要在 `sanitizeWorkflow` / `sanitizeTask` / `sanitizeEdges` 里清洗并 clamp（[`lib/host/store.js:139`](../../lib/host/store.js#L139)）。
-- 新增路由必须：限制方法、复用 2 MB 请求体上限、先过 `connection.requestRejection`，并保持 `{ ok, value }` / `{ ok, error }` 信封（[`lib/host/routes.js:71`](../../lib/host/routes.js#L71)）。
+- 所有来自客户端的字段都要在 `sanitizeWorkflow` / `sanitizeTask` / `sanitizeEdges` 里清洗并 clamp（[`lib/host/store.js:256`](../../lib/host/store.js#L256)）。
+- 新增路由必须：限制方法、复用 2 MB 请求体上限、先过 `connection.requestRejection`，并保持 `{ ok, value }` / `{ ok, error }` 信封（[`lib/host/routes.js:73`](../../lib/host/routes.js#L73)）。
 - 不要放宽或绕过准入栅栏；不要把 API 挂到其他前缀。
 - 日志用 `ctx.logger?.info/warn`；运行日志用 `engine.log()`，不要直接 `console.log`。
 

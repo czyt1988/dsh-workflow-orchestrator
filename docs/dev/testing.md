@@ -6,16 +6,16 @@
 
 | 层级 | 文件 | 数量 | 需要 DSH？ | 典型耗时 |
 | --- | --- | --- | --- | --- |
-| 引擎单元测试 | [`test/engine.test.mjs`](../../test/engine.test.mjs) | 32 个用例 | 否（用假执行器） | 秒级 |
-| 存储/路由集成测试 | [`test/store-routes.test.mjs`](../../test/store-routes.test.mjs) | 7 个用例 | 否（临时目录 + 假 req/res） | 秒级 |
+| 引擎单元测试 | [`test/engine.test.mjs`](../../test/engine.test.mjs) | 60 个用例 | 否（用假执行器 / 假动作执行器 / 注入时钟） | 秒级 |
+| 存储/路由集成测试 | [`test/store-routes.test.mjs`](../../test/store-routes.test.mjs) | 11 个用例 | 否（临时目录 + 假 req/res） | 秒级 |
 | 发布工具单元测试 | [`test/release.test.mjs`](../../test/release.test.mjs) | 8 个用例 | 否（纯函数） | 毫秒级 |
-| 全链路 E2E | [`tools/e2e-full.cjs`](../../tools/e2e-full.cjs) | 79 条断言 | 是（隔离 `DSH_HOME` + 真实模型） | 分钟级 |
+| 全链路 E2E | [`tools/e2e-full.cjs`](../../tools/e2e-full.cjs) | 79 条断言（已把节点面板断言从 4 张改为 7 张，本次未复跑） | 是（隔离 `DSH_HOME` + 真实模型） | 分钟级 |
 
 ```mermaid
 flowchart TB
-  A["E2E · 79 条断言 · 真实 DSH / Chromium / 模型"]
-  B["集成测试 · 7 个用例 · 存储往返 + 路由 + 准入"]
-  C["单元测试 · 32 个用例 · DAG 调度语义、prompt 组装与完成判定"]
+  A["E2E · 79 条断言（未覆盖新节点）· 真实 DSH / Chromium / 模型"]
+  B["集成测试 · 11 个用例 · 存储往返 + 路由 + 准入 + 新节点清洗"]
+  C["单元测试 · 60 个用例 · DAG 调度、完成判定、定时/动作/等待节点"]
   D["发布工具 · 8 个用例 · CHANGELOG 归档与发布门禁"]
   A --> B --> C
   C -.-> E["npm test · 每次提交"]
@@ -34,42 +34,57 @@ npm test
 node --test test/engine.test.mjs test/store-routes.test.mjs test/release.test.mjs
 ```
 
-引擎单测不启动 DSH：`WorkflowEngine` 构造函数接受 `options.executeTask` 作为测试接缝（[`lib/host/engine.js:437`](../../lib/host/engine.js#L437)），测试用 `createHarness()` 注入假执行器（[`test/engine.test.mjs:32`](../../test/engine.test.mjs#L32)）。假执行器返回 `{ sessionId, output }`，用 `deferred()` 控制完成时机，从而精确断言「谁先启动、谁在等谁」。完成判定另有 `createTurnHarness()`（[`test/engine.test.mjs:703`](../../test/engine.test.mjs#L703)），用假 `sessions` / `agents` / 可选 `subagents` 服务直接驱动 `waitForTurn()`。
+引擎单测不启动 DSH：`WorkflowEngine` 构造函数接受 `options.executeTask` 作为测试接缝（[`lib/host/engine.js:582`](../../lib/host/engine.js#L582)），测试用 `createHarness()` 注入假执行器（[`test/engine.test.mjs:40`](../../test/engine.test.mjs#L40)）。假执行器返回 `{ sessionId, output }`，用 `deferred()` 控制完成时机，从而精确断言「谁先启动、谁在等谁」。完成判定另有 `createTurnHarness()`（[`test/engine.test.mjs:711`](../../test/engine.test.mjs#L711)），用假 `sessions` / `agents` / 可选 `subagents` 服务直接驱动 `waitForTurn()`。新增节点使用 `createControlHarness()`（`executeAction` / 假 `sessions` / 假 `agents` / `waitPollMs`）与 `createScheduleHarness()`（`now` 注入时钟 + 手动 `tickSchedules()`），真实动作执行器在测试中**从不被调用**，不会真的关机。
 
 | 用例 | 覆盖语义 | 位置 |
 | --- | --- | --- |
-| 两个不连线任务同时启动 | 无前序节点并发启动 | [`test/engine.test.mjs:105`](../../test/engine.test.mjs#L105) |
-| 链式任务等待前序 | `A → B` 串行 | [`test/engine.test.mjs:127`](../../test/engine.test.mjs#L127) |
-| 并行网关等待所有输入分支 | 汇合语义：分支未全完成时后继不启动 | [`test/engine.test.mjs:142`](../../test/engine.test.mjs#L142) |
-| 失败只级联本分支，独立任务跑完 | `failed` → 下游 `skipped`，无关节点 `completed` | [`test/engine.test.mjs:176`](../../test/engine.test.mjs#L176) |
-| `detach` 停止：停调度不停任务 | 运行中任务完成，未启动节点 `cancelled`，整体 `cancelled` | [`test/engine.test.mjs:200`](../../test/engine.test.mjs#L200) |
-| `cancel-tasks` 停止：取消所有会话 | 每个运行中节点都调用 `sessionController.cancel` | [`test/engine.test.mjs:222`](../../test/engine.test.mjs#L222) |
-| 校验拒绝环、空提示词、悬空网关 | `validateWorkflow` 的三类问题 | [`test/engine.test.mjs:248`](../../test/engine.test.mjs#L248) |
-| 上游上下文穿过网关并区分模式 | `upstreamTaskNodes` + `composePrompt` 的 full/summary/none | [`test/engine.test.mjs:265`](../../test/engine.test.mjs#L265) |
-| 从中间节点开始只执行下游范围 | `start(..., { startNodeId })` 只启动起点及后继；范围外 `not-run`，整体 `completed`，启动顺序正确 | [`test/engine.test.mjs:295`](../../test/engine.test.mjs#L295) |
-| 从一条分支开始时忽略范围外网关输入 | `A→GW`、`B→GW`、`GW→C`，从 A 开始只跑 A、GW、C，B 未执行 | [`test/engine.test.mjs:334`](../../test/engine.test.mjs#L334) |
-| 从网关开始时直接扇出 | 起点是并行网关时没有范围内前序也视为可启动，直接放行后继 | [`test/engine.test.mjs:361`](../../test/engine.test.mjs#L361) |
-| 范围校验只看可达子图 | 范围外空提示词不阻塞；起始节点不存在、起点提示词为空会失败 | [`test/engine.test.mjs:384`](../../test/engine.test.mjs#L384) |
-| 判定解析取最后一次 token | `WOF_DECISION: CONTINUE/STOP`、中英文冒号、大小写、缺失返回 `undefined` | [`test/engine.test.mjs:399`](../../test/engine.test.mjs#L399) |
-| 判断节点继续 | 判定 CONTINUE；下游启动；判断节点对上下文透明 | [`test/engine.test.mjs:407`](../../test/engine.test.mjs#L407) |
-| 判断节点判定终止 | STOP → 运行 `terminated`、下游 `skipped`、整体 `completed` | [`test/engine.test.mjs:444`](../../test/engine.test.mjs#L444) |
-| 无效判定降级 | 默认继续；`onInvalid: 'stop'` 时终止 | [`test/engine.test.mjs:476`](../../test/engine.test.mjs#L476) |
-| 终止节点 detach | 到达即终止；未启动节点跳过；在途任务跑完 | [`test/engine.test.mjs:512`](../../test/engine.test.mjs#L512) |
-| 终止节点 cancel-tasks | 终止时取消在途会话，节点 `cancelled` | [`test/engine.test.mjs:547`](../../test/engine.test.mjs#L547) |
-| 终止前失败 | 终止前已有失败 → 整体仍 `failed` | [`test/engine.test.mjs:584`](../../test/engine.test.mjs#L584) |
-| 终止后失败 | 终止后失败的节点只记 `failed`，不翻转整体 | [`test/engine.test.mjs:605`](../../test/engine.test.mjs#L605) |
-| 判断/终止节点校验 | 提示词、输入连线、上游任务、输出连线等规则 | [`test/engine.test.mjs:625`](../../test/engine.test.mjs#L625) |
-| 上游上下文穿过判断节点 | `upstreamTaskNodes` 把判断节点当透明层 | [`test/engine.test.mjs:655`](../../test/engine.test.mjs#L655) |
-| 回合结束但有后台子代理 | 首轮 `completed` 但 `subagents.waitForChildren` 仍汇合到工作 → 不完成；子代理唤醒新轮次后再判定 | [`test/engine.test.mjs:754`](../../test/engine.test.mjs#L754) |
-| 只认最后一个回合 | 首轮成功、后续轮次 `aborted` → 任务按 `aborted` 失败 | [`test/engine.test.mjs:808`](../../test/engine.test.mjs#L808) |
-| 无 `subagents` 服务时降级 | 服务缺失时退回「第一个结束轮次」的旧行为，任务仍可完成 | [`test/engine.test.mjs:851`](../../test/engine.test.mjs#L851) |
-| `cancel-tasks` 终止等待中的任务 | 等待后台子代理时终止 → 取消会话、尽力停止后代并报「任务已被终止」 | [`test/engine.test.mjs:906`](../../test/engine.test.mjs#L906) |
-| `waitForChildren` 抛错时降级 | 可选服务异常不应阻塞完成判定，按回合边界落定 | [`test/engine.test.mjs:876`](../../test/engine.test.mjs#L876) |
-| `pendingUserQuestions` 信号解析 | 打开的 ask 调用与投影 `continued` 行按 `callId` 去重合并；工具结果关闭前台等待、投影落定后清空 | [`test/engine.test.mjs:974`](../../test/engine.test.mjs#L974) |
-| 阻塞式提问挂起完成 | 提问未回答时不落定并写入 `waitingForUser`、记「等待用户回复」日志；回答后继续并清空 | [`test/engine.test.mjs:1012`](../../test/engine.test.mjs#L1012) |
-| 限时提问超时后等待迟到回复 | 投影 `continued` 提问阻止提前完成；迟到回答唤醒新轮次后以新输出落定 | [`test/engine.test.mjs:1053`](../../test/engine.test.mjs#L1053) |
-| 无投影服务时降级 | 超时后「仍可回答」的提问感知不到，按旧行为完成并记 `WARN` | [`test/engine.test.mjs:1106`](../../test/engine.test.mjs#L1106) |
-| 等待用户时终止 | `cancel-tasks` 取消等待中的会话、清空 `waitingForUser`，节点 `cancelled` | [`test/engine.test.mjs:1138`](../../test/engine.test.mjs#L1138) |
+| 两个不连线任务同时启动 | 无前序节点并发启动 | [`test/engine.test.mjs:113`](../../test/engine.test.mjs#L113) |
+| 链式任务等待前序 | `A → B` 串行 | [`test/engine.test.mjs:135`](../../test/engine.test.mjs#L135) |
+| 并行网关等待所有输入分支 | 汇合语义：分支未全完成时后继不启动 | [`test/engine.test.mjs:150`](../../test/engine.test.mjs#L150) |
+| 失败只级联本分支，独立任务跑完 | `failed` → 下游 `skipped`，无关节点 `completed` | [`test/engine.test.mjs:184`](../../test/engine.test.mjs#L184) |
+| `detach` 停止：停调度不停任务 | 运行中任务完成，未启动节点 `cancelled`，整体 `cancelled` | [`test/engine.test.mjs:208`](../../test/engine.test.mjs#L208) |
+| `cancel-tasks` 停止：取消所有会话 | 每个运行中节点都调用 `sessionController.cancel` | [`test/engine.test.mjs:230`](../../test/engine.test.mjs#L230) |
+| 校验拒绝环、空提示词、悬空网关 | `validateWorkflow` 的三类问题 | [`test/engine.test.mjs:256`](../../test/engine.test.mjs#L256) |
+| 上游上下文穿过网关并区分模式 | `upstreamTaskNodes` + `composePrompt` 的 full/summary/none | [`test/engine.test.mjs:273`](../../test/engine.test.mjs#L273) |
+| 从中间节点开始只执行下游范围 | `start(..., { startNodeId })` 只启动起点及后继；范围外 `not-run`，整体 `completed`，启动顺序正确 | [`test/engine.test.mjs:303`](../../test/engine.test.mjs#L303) |
+| 从一条分支开始时忽略范围外网关输入 | `A→GW`、`B→GW`、`GW→C`，从 A 开始只跑 A、GW、C，B 未执行 | [`test/engine.test.mjs:342`](../../test/engine.test.mjs#L342) |
+| 从网关开始时直接扇出 | 起点是并行网关时没有范围内前序也视为可启动，直接放行后继 | [`test/engine.test.mjs:369`](../../test/engine.test.mjs#L369) |
+| 范围校验只看可达子图 | 范围外空提示词不阻塞；起始节点不存在、起点提示词为空会失败 | [`test/engine.test.mjs:392`](../../test/engine.test.mjs#L392) |
+| 判定解析取最后一次 token | `WOF_DECISION: CONTINUE/STOP`、中英文冒号、大小写、缺失返回 `undefined` | [`test/engine.test.mjs:407`](../../test/engine.test.mjs#L407) |
+| 判断节点继续 | 判定 CONTINUE；下游启动；判断节点对上下文透明 | [`test/engine.test.mjs:415`](../../test/engine.test.mjs#L415) |
+| 判断节点判定终止 | STOP → 运行 `terminated`、下游 `skipped`、整体 `completed` | [`test/engine.test.mjs:452`](../../test/engine.test.mjs#L452) |
+| 无效判定降级 | 默认继续；`onInvalid: 'stop'` 时终止 | [`test/engine.test.mjs:484`](../../test/engine.test.mjs#L484) |
+| 终止节点 detach | 到达即终止；未启动节点跳过；在途任务跑完 | [`test/engine.test.mjs:520`](../../test/engine.test.mjs#L520) |
+| 终止节点 cancel-tasks | 终止时取消在途会话，节点 `cancelled` | [`test/engine.test.mjs:555`](../../test/engine.test.mjs#L555) |
+| 终止前失败 | 终止前已有失败 → 整体仍 `failed` | [`test/engine.test.mjs:592`](../../test/engine.test.mjs#L592) |
+| 终止后失败 | 终止后失败的节点只记 `failed`，不翻转整体 | [`test/engine.test.mjs:613`](../../test/engine.test.mjs#L613) |
+| 判断/终止节点校验 | 提示词、输入连线、上游任务、输出连线等规则 | [`test/engine.test.mjs:633`](../../test/engine.test.mjs#L633) |
+| 上游上下文穿过判断节点 | `upstreamTaskNodes` 把判断节点当透明层 | [`test/engine.test.mjs:663`](../../test/engine.test.mjs#L663) |
+| 回合结束但有后台子代理 | 首轮 `completed` 但 `subagents.waitForChildren` 仍汇合到工作 → 不完成；子代理唤醒新轮次后再判定 | [`test/engine.test.mjs:762`](../../test/engine.test.mjs#L762) |
+| 只认最后一个回合 | 首轮成功、后续轮次 `aborted` → 任务按 `aborted` 失败 | [`test/engine.test.mjs:816`](../../test/engine.test.mjs#L816) |
+| 无 `subagents` 服务时降级 | 服务缺失时退回「第一个结束轮次」的旧行为，任务仍可完成 | [`test/engine.test.mjs:859`](../../test/engine.test.mjs#L859) |
+| `cancel-tasks` 终止等待中的任务 | 等待后台子代理时终止 → 取消会话、尽力停止后代并报「任务已被终止」 | [`test/engine.test.mjs:914`](../../test/engine.test.mjs#L914) |
+| `waitForChildren` 抛错时降级 | 可选服务异常不应阻塞完成判定，按回合边界落定 | [`test/engine.test.mjs:884`](../../test/engine.test.mjs#L884) |
+| `pendingUserQuestions` 信号解析 | 打开的 ask 调用与投影 `continued` 行按 `callId` 去重合并；工具结果关闭前台等待、投影落定后清空 | [`test/engine.test.mjs:982`](../../test/engine.test.mjs#L982) |
+| 阻塞式提问挂起完成 | 提问未回答时不落定并写入 `waitingForUser`、记「等待用户回复」日志；回答后继续并清空 | [`test/engine.test.mjs:1020`](../../test/engine.test.mjs#L1020) |
+| 限时提问超时后等待迟到回复 | 投影 `continued` 提问阻止提前完成；迟到回答唤醒新轮次后以新输出落定 | [`test/engine.test.mjs:1061`](../../test/engine.test.mjs#L1061) |
+| 无投影服务时降级 | 超时后「仍可回答」的提问感知不到，按旧行为完成并记 `WARN` | [`test/engine.test.mjs:1114`](../../test/engine.test.mjs#L1114) |
+| 等待用户时终止 | `cancel-tasks` 取消等待中的会话、清空 `waitingForUser`，节点 `cancelled` | [`test/engine.test.mjs:1146`](../../test/engine.test.mjs#L1146) |
+| 定时/动作/等待的纯函数 | `nextOccurrence` 四种模式、`describeTimer`、`timerValidationProblems`、动作描述与校验 | [`test/engine.test.mjs:1278`](../../test/engine.test.mjs#L1278) |
+| 新节点校验 | 定时输出连线/星期/过期一次性、动作必填网址与命令、等待目标与输出连线 | [`test/engine.test.mjs:1309`](../../test/engine.test.mjs#L1309) |
+| 流程中间定时节点 | 等待到点后放行下游，节点 `timerState.firedAt` 与日志正确 | [`test/engine.test.mjs:1335`](../../test/engine.test.mjs#L1335) |
+| 入口定时节点手动执行 | 不等待、立即触发并跑完下游 | [`test/engine.test.mjs:1363`](../../test/engine.test.mjs#L1363) |
+| 停止取消定时等待 | 不把运行挂到未来时间，节点 `cancelled` | [`test/engine.test.mjs:1382`](../../test/engine.test.mjs#L1382) |
+| 动作节点成功/失败 | 注入假执行器，断言动作收到、摘要写入、失败级联跳过 | [`test/engine.test.mjs:1402`](../../test/engine.test.mjs#L1402) |
+| 等待节点真正静默 | 目标任务运行中不完成；回合完成且连续两次静默后才放行下游 | [`test/engine.test.mjs:1443`](../../test/engine.test.mjs#L1443) |
+| 等待节点遇到提问 | 任务仍在 `ask_user_question` 时不完成；回答并完成新回合后才继续 | [`test/engine.test.mjs:1474`](../../test/engine.test.mjs#L1474) |
+| 等待节点遇到后台子 Agent | `waitForChildren` 仍返回有子代理工作时不算完成 | [`test/engine.test.mjs:1511`](../../test/engine.test.mjs#L1511) |
+| 等待任务失败 | 节点 `failed`、下游 `skipped`、不启动任务会话 | [`test/engine.test.mjs:1546`](../../test/engine.test.mjs#L1546) |
+| 停止取消等待节点 | 立即 `cancelled`，不等待外部任务 | [`test/engine.test.mjs:1574`](../../test/engine.test.mjs#L1574) |
+| 候选任务列表 | 存活 Agent 入选、子 Agent 会话排除、状态与标题正确 | [`test/engine.test.mjs:1597`](../../test/engine.test.mjs#L1597) |
+| 调度器自动启动 | 注入时钟：未到点不启动、到点自动启动一次并写入 `trigger`、不会重复触发 | [`test/engine.test.mjs:1662`](../../test/engine.test.mjs#L1662) |
+| 调度摘要 | `count`、`nextAt`、`valid` 与周期标记 | [`test/engine.test.mjs:1685`](../../test/engine.test.mjs#L1685) |
+| 运行中跳过周期触发 | 单运行约束下只启动首个运行，下一次周期跳过 | [`test/engine.test.mjs:1703`](../../test/engine.test.mjs#L1703) |
 
 ## 2. 集成测试：存储与路由
 
@@ -84,6 +99,9 @@ node --test test/engine.test.mjs test/store-routes.test.mjs test/release.test.mj
 | 路由覆盖与准入栅栏 | 403、state/create/save/run/stop、`/api/run` 透传 `startNodeId`、非法类型 400、404、405 | [`test/store-routes.test.mjs:201`](../../test/store-routes.test.mjs#L201) |
 | 判断/终止节点清洗 | 节点类型、`control` 默认值与非法值归一、终止原因截断 | [`test/store-routes.test.mjs:303`](../../test/store-routes.test.mjs#L303) |
 | 提前终止运行记录持久化 | `terminated / terminatedBy / terminatedReason / terminatedAt`、判断节点 `decision` 往返 | [`test/store-routes.test.mjs:339`](../../test/store-routes.test.mjs#L339) |
+| 新节点输入清洗 | `timer` 模式/星期/时间/一次性时间、`action` 动作白名单与 clamp、`wait` 目标去重与默认标题 | [`test/store-routes.test.mjs:371`](../../test/store-routes.test.mjs#L371) |
+| 自动触发记录持久化 | 运行记录 `trigger` 字段往返 | [`test/store-routes.test.mjs:423`](../../test/store-routes.test.mjs#L423) |
+| 新路由 | `GET /api/periodic` 摘要、`GET /api/tasks` 候选、方法 405 与准入 403 | [`test/store-routes.test.mjs:458`](../../test/store-routes.test.mjs#L458) |
 
 注意：测试在删除临时目录前会重试等待最后一次写入落盘（[`test/store-routes.test.mjs:49`](../../test/store-routes.test.mjs#L49)），这是 Windows 上原子写 + 异步清理的已知需要。
 
@@ -93,8 +111,11 @@ node --test test/engine.test.mjs test/store-routes.test.mjs test/release.test.mj
 - **后台子代理完成的真实链路**：E2E 需要构造一个会派发后台子代理的任务提示词，断言任务节点在子代理结算、主 agent 完成后续轮次之前保持「运行中」，下游节点不会提前启动；当前只有假 `subagents` 服务的单测覆盖；
 - **等待用户回复的真实链路**：单测已用假会话 + 假投影覆盖判定逻辑（上表后五行）；E2E 的补法是构造一个明确要求「先调用 `ask_user_question` 询问偏好，得到回答后再输出结论」的任务提示词，断言节点先进入「等待用户回复」（面板轮询 `waitingForUser`），用页面 API 或真实 UI 回答后节点回到「运行中」并最终「已完成」，且下游拿到的是回答之后的输出。该场景依赖真实模型按提示词调用提问工具，断言较脆，先以单测为准；
 - `executeTaskReal()` 里对 `sessionController` 的真实调用（创建/权限/模型/提示词）；
-- 判断节点的真实模型判定、终止节点的 E2E 场景（当前 E2E 只更新了四张节点卡的面板断言，新的判断/终止流程需要在真实 DSH + 模型环境中补 scenario 后再写入断言）；
-- 浏览器半区的 React 组件逻辑（当前只由 E2E 覆盖）；
+- 判断节点的真实模型判定、终止节点的 E2E 场景（本次 E2E 只更新了「节点面板 4→7 张卡」的断言，判断/终止与新节点的真实流程需要在真实 DSH + 模型环境中补 scenario 后再写入断言）；
+- **定时节点的真实时间链路**：单测用注入时钟 + 短 `setTimeout` 覆盖一次性/周期调度、入口节点立即放行与停止取消；真实 DSH 下需要等待真实时钟到点（或用一次性的近未来时间）验证自动启动，属于 E2E 待补场景；
+- **动作节点的真实平台动作**：单测通过 `executeAction` 注入假执行器，绝不真的关机/重启；真实执行器只在手工验收时使用，验证时必须先保持 `dryRun: true` 或选择无害动作（`log` / `open-url`）；
+- **等待任务完成节点的真实跨会话链路**：单测用假 sessions/agents 覆盖静默判定、子 Agent、提问、失败与停止；真实 DSH 下需要同时运行两个真实任务，再用手动执行的等待节点验证真正完成与子 Agent 场景；
+- 浏览器半区的 React 组件逻辑（当前只由 E2E 覆盖）；新增节点卡、属性区、周期提醒条与侧栏徽标目前由只读的静态冒烟脚本（本地 `.probe/`，不入库）覆盖渲染分支，页面级交互仍需真实 E2E；
 - 状态文件损坏后的 `.corrupt-*` 恢复路径。
 
 ## 3. E2E：隔离环境全链路
@@ -141,7 +162,7 @@ flowchart LR
 | 组 | 断言数 | 覆盖内容 |
 | --- | --- | --- |
 | `1-page` | 3 | 侧栏入口、三栏布局、日志位于中间列 |
-| `2-palette` | 1 | 左侧只有任务节点与并行网关两张卡片 |
+| `2-palette` | 1 | 左侧提供任务、并行网关、判断、终止、定时、动作、等待任务完成七张卡片 |
 | `3-node` | 3 | 点击添加、拖放添加、提示词 textarea 出现 |
 | `3-inspector` | 6 | 模式/权限/模型/工作区的默认值、模型分组、字段齐全 |
 | `4-enter` | 5 | Enter 只换行；无运行记录/无日志/终止按钮禁用/无新会话 |
@@ -158,6 +179,8 @@ flowchart LR
 | **合计** | **79** | 报告写入 `.e2e/e2e-report.md` 与 `.e2e/e2e-report.json` |
 
 断言由脚本内的 `check(group, name, pass, detail)` 记录（[`tools/e2e-full.cjs:106`](../../tools/e2e-full.cjs#L106)），报告由 [`renderReport()`](../../tools/e2e-full.cjs#L1375) 生成。
+
+> 本次新增节点改动只调整了 `2-palette` 的 4→7 张卡片断言，**未在本机复跑 E2E**（环境缺少 DSH 桌面端 / Playwright / 模型凭据）；新增节点的真实 E2E 场景与截图刷新列为发布前手工项。断言总数仍为 79（只改了一条断言的内容）。
 
 ### 3.4 为什么 E2E 不进 CI
 

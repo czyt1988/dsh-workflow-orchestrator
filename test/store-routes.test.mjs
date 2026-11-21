@@ -368,3 +368,187 @@ test('run history keeps termination fields and judge decisions', async () => {
   })
 })
 
+test('sanitizeWorkflow keeps timer, action and wait payloads', () => {
+  const saved = sanitizeWorkflow({
+    id: 'wf-control-nodes',
+    name: '新控制节点',
+    nodes: [
+      {
+        id: 't',
+        type: 'timer',
+        title: '',
+        timer: { mode: 'weekly', time: '25:00', weekdays: [3, 3, 9, '2', 1] },
+      },
+      { id: 't2', type: 'timer', timer: { mode: 'once', at: 1234567890123.4 } },
+      {
+        id: 'a',
+        type: 'action',
+        title: '',
+        action: { kind: 'shutdown', dryRun: 'no', delaySeconds: 5, message: '  工作完成，即将关机  ' },
+      },
+      { id: 'a2', type: 'action', action: { kind: 'bogus', dryRun: false } },
+      {
+        id: 'w',
+        type: 'wait',
+        title: '',
+        wait: { targets: [{ id: 's-1', title: '任务一' }, { id: 's-1', title: '重复' }, 's-2', { id: '   ' }, { id: 's-3' }] },
+      },
+    ],
+    edges: [
+      { from: 't', to: 'a' },
+      { from: 'a', to: 'w' },
+    ],
+  })
+  assert.equal(saved.nodes[0].type, 'timer')
+  assert.equal(saved.nodes[0].title, '定时节点')
+  assert.deepEqual(saved.nodes[0].timer, { mode: 'weekly', time: '03:00', weekdays: [1, 2, 3] })
+  assert.deepEqual(saved.nodes[1].timer, { mode: 'once', at: 1234567890123 })
+  assert.equal(saved.nodes[2].title, '动作节点')
+  assert.deepEqual(saved.nodes[2].action, {
+    kind: 'shutdown',
+    dryRun: true,
+    delaySeconds: 10,
+    message: '工作完成，即将关机',
+  })
+  assert.equal(saved.nodes[3].action.kind, 'log')
+  assert.equal(saved.nodes[3].action.dryRun, false)
+  assert.equal(saved.nodes[4].title, '等待任务完成')
+  assert.deepEqual(saved.nodes[4].wait.targets, [
+    { id: 's-1', title: '任务一' },
+    { id: 's-2', title: 's-2' },
+    { id: 's-3', title: 's-3' },
+  ])
+})
+
+test('run history keeps the timer trigger metadata', async () => {
+  await withTempDir(async (dir) => {
+    const store = new WorkflowStore(fakeCtx(dir))
+    await store.ready()
+    store.recordRun({
+      id: 'run-triggered',
+      workflowId: 'wf-timer',
+      workflowName: '定时工作流',
+      status: 'completed',
+      trigger: {
+        kind: 'timer',
+        nodeId: 't',
+        nodeTitle: '每天三点',
+        mode: 'daily',
+        scheduledAt: 1760000000000,
+      },
+      startedAt: 1,
+      endedAt: 2,
+      nodes: { t: { id: 't', title: '每天三点', type: 'timer', status: 'completed' } },
+      log: [],
+    })
+    await store.persist()
+    const reloaded = new WorkflowStore(fakeCtx(dir))
+    await reloaded.ready()
+    const run = reloaded.runs()[0]
+    assert.deepEqual(run.trigger, {
+      kind: 'timer',
+      nodeId: 't',
+      nodeTitle: '每天三点',
+      scheduledAt: 1760000000000,
+      mode: 'daily',
+    })
+  })
+})
+
+test('sanitizeWorkflow clamps timer modes and caps wait targets', () => {
+  const saved = sanitizeWorkflow({
+    name: '边界',
+    nodes: [
+      { type: 'timer', timer: { mode: 'interval', intervalMinutes: 999999 } },
+      { type: 'timer', timer: { mode: 'weekly', time: '9:5', weekdays: [] } },
+      { type: 'timer', timer: { mode: 'once' } },
+      { type: 'timer', timer: { mode: 'bogus' } },
+      {
+        type: 'wait',
+        wait: { targets: Array.from({ length: 35 }, (_, index) => ({ id: `s-${index}` })) },
+      },
+    ],
+  })
+  assert.deepEqual(saved.nodes[0].timer, { mode: 'interval', intervalMinutes: 10080 })
+  assert.deepEqual(saved.nodes[1].timer, { mode: 'weekly', time: '03:00', weekdays: [] })
+  assert.deepEqual(saved.nodes[2].timer, { mode: 'once' })
+  assert.deepEqual(saved.nodes[3].timer, { mode: 'daily', time: '03:00' })
+  assert.equal(saved.nodes[4].wait.targets.length, 30)
+  assert.equal(saved.nodes[4].wait.targets[29].id, 's-29')
+})
+
+test('routes expose the periodic summary and wait candidates', async () => {
+  await withTempDir(async (dir) => {
+    const store = new WorkflowStore(fakeCtx(dir))
+    await store.ready()
+    let rejection
+    const connection = {
+      requestRejection() {
+        return rejection
+      },
+    }
+    let refreshes = 0
+    const summary = {
+      count: 2,
+      onceCount: 1,
+      workflows: [
+        {
+          workflowId: 'wf-1',
+          workflowName: '每日报告',
+          nodeId: 't',
+          nodeTitle: '每天三点',
+          mode: 'daily',
+          periodic: true,
+          nextAt: 1760000000000,
+          valid: true,
+          problems: [],
+        },
+      ],
+    }
+    const engine = {
+      snapshot() {
+        return { running: [], runs: [], periodic: summary }
+      },
+      snapshotRuns() {
+        return []
+      },
+      getRun() {
+        return undefined
+      },
+      async refreshSchedulerSummary() {
+        refreshes += 1
+      },
+      schedulerSnapshot() {
+        return summary
+      },
+      async listWaitCandidates() {
+        return [{ sessionId: 's-1', title: '正在运行的任务', status: 'running', waitingQuestions: 0 }]
+      },
+      stop() {
+        return { id: 'run-x', status: 'cancelled', log: [], nodes: {} }
+      },
+      async start() {
+        return { id: 'run-x', status: 'running', log: [], nodes: {} }
+      },
+    }
+    const catalogs = { async get() { return { defaults: {}, problems: [] } } }
+    const handler = createRouteHandler({ store, engine, catalogs, connection })
+    const call = async (method, path) => {
+      const res = fakeRes()
+      await handler(fakeReq(method, `/workflow-orchestrator${path}`), res)
+      return { status: res.result.status, payload: res.result.body === '' ? undefined : JSON.parse(res.result.body) }
+    }
+    const ok = await call('GET', '/api/periodic')
+    assert.equal(ok.status, 200)
+    assert.equal(ok.payload.value.count, 2)
+    assert.equal(refreshes, 1)
+    const tasks = await call('GET', '/api/tasks')
+    assert.equal(tasks.status, 200)
+    assert.equal(tasks.payload.value.tasks[0].sessionId, 's-1')
+    const wrongMethod = await call('POST', '/api/periodic')
+    assert.equal(wrongMethod.status, 405)
+    rejection = { status: 401 }
+    const forbidden = await call('GET', '/api/tasks')
+    assert.equal(forbidden.status, 403)
+  })
+})

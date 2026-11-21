@@ -750,9 +750,9 @@ async function scenarioPanelAndPalette(url) {
     structure.palette.length > 0 && structure.hasCanvas && structure.hasInspector && structure.hasLog,
     { hasCanvas: structure.hasCanvas, hasInspector: structure.hasInspector, hasLog: structure.hasLog })
   check('1-page', '消息窗口位于中间列（画布下方）', structure.hasCenter && structure.logParentClass === 'wfo-center', structure.logParentClass)
-  check('2-palette', '左侧提供任务、并行网关、判断、终止四种节点卡',
-    structure.paletteTitles.length === 4 &&
-      ['任务节点', '并行网关', '判断节点', '终止节点'].every((label) =>
+  check('2-palette', '左侧提供任务、并行网关、判断、终止、定时、动作、等待任务完成七种节点卡',
+    structure.paletteTitles.length === 7 &&
+      ['任务节点', '并行网关', '判断节点', '终止节点', '定时节点', '动作节点', '等待任务完成'].every((label) =>
         structure.paletteTitles.some((title) => title.includes(label)),
       ),
     structure.paletteTitles)

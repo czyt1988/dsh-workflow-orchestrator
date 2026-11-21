@@ -5,7 +5,15 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { WorkflowEngine, validateWorkflow, composePrompt, upstreamTaskNodes, parseJudgeDecision, pendingUserQuestions } from '../lib/host/engine.js'
+import { WorkflowEngine, validateWorkflow, composePrompt, upstreamTaskNodes, parseJudgeDecision, pendingUserQuestions, rootTimerNodes } from '../lib/host/engine.js'
+import {
+  nextOccurrence,
+  describeTimer,
+  formatDateTime,
+  timerIsPeriodic,
+  timerValidationProblems,
+} from '../lib/host/recurrence.js'
+import { actionValidationProblems, describeAction, executeActionReal } from '../lib/host/actions.js'
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -1168,4 +1176,776 @@ test('cancel-tasks while waiting for the user clears the waiting state', { timeo
   assert.match(failure.message, /任务已被终止/)
   assert.equal(run.nodes.n1.waitingForUser, null)
   assert.deepEqual(cancelled, [agent.id])
+})
+
+// ---------------------------------------------------------------------------
+// 定时节点 / 动作节点 / 等待任务完成节点
+// ---------------------------------------------------------------------------
+
+function timerNode(id, title, timer) {
+  return { id, type: 'timer', title, x: 0, y: 0, timer }
+}
+
+function actionNode(id, title, action) {
+  return { id, type: 'action', title, x: 0, y: 0, action }
+}
+
+function waitNode(id, title, targets) {
+  return { id, type: 'wait', title, x: 0, y: 0, wait: { targets } }
+}
+
+/** Control-node harness: real ctx shape with injectable sessions/agents. */
+function createControlHarness({
+  executeTask,
+  executeAction,
+  sessions = new Map(),
+  agents = new Map(),
+  subagents,
+  sessionProjections,
+  engineOptions = {},
+  workflows = [],
+}) {
+  const recorded = []
+  const cancels = []
+  const listeners = new Set()
+  const ctx = {
+    logger: { info() {}, warn() {} },
+    get(name) {
+      if (name === 'subagents') return subagents
+      if (name === 'sessionProjections') return sessionProjections
+      if (name === 'dshHomePath') return () => '.'
+      return undefined
+    },
+    on(name, handler) {
+      if (name !== 'session/event') return () => {}
+      listeners.add(handler)
+      return () => listeners.delete(handler)
+    },
+    sessions: {
+      get(id) {
+        return sessions.get(id)
+      },
+    },
+    agents: {
+      get(id) {
+        return agents.get(id)
+      },
+      list() {
+        return [...agents.values()]
+      },
+    },
+    sessionController: {
+      cancel(payload) {
+        cancels.push(payload.sessionId)
+        return { accepted: true }
+      },
+    },
+  }
+  const store = {
+    runs() {
+      return recorded.slice()
+    },
+    recordRun(run) {
+      recorded.push(run)
+    },
+    ready() {
+      return Promise.resolve()
+    },
+    get(id) {
+      return workflows.find((workflow) => workflow.id === id)
+    },
+    workflows() {
+      return workflows.slice()
+    },
+    save(workflow) {
+      return workflow
+    },
+  }
+  const catalogs = {
+    async get() {
+      return { defaults: {} }
+    },
+  }
+  const engine = new WorkflowEngine(ctx, store, catalogs, {
+    schedulerEnabled: false,
+    ...(executeTask === undefined ? {} : { executeTask }),
+    ...(executeAction === undefined ? {} : { executeAction }),
+    ...engineOptions,
+  })
+  return { engine, recorded, cancels, ctx, emit: (session, event) => listeners.forEach((handler) => handler(session, event)) }
+}
+
+test('recurrence helpers compute the next trigger of every timer mode', () => {
+  const from = new Date(2026, 10, 22, 1, 30, 0, 0).getTime()
+  assert.equal(nextOccurrence({ mode: 'daily', time: '03:00' }, from), new Date(2026, 10, 22, 3, 0, 0, 0).getTime())
+  assert.equal(nextOccurrence({ mode: 'daily', time: '01:00' }, from), new Date(2026, 10, 23, 1, 0, 0, 0).getTime())
+  assert.equal(nextOccurrence({ mode: 'interval', intervalMinutes: 30 }, from), from + 30 * 60000)
+  const once = from + 120000
+  assert.equal(nextOccurrence({ mode: 'once', at: once }, from), once)
+  const weekly = nextOccurrence({ mode: 'weekly', time: '09:00', weekdays: [1, 2, 3, 4, 5, 6, 7] }, from)
+  assert.ok(weekly > from)
+  assert.equal(describeTimer({ mode: 'daily', time: '03:00' }), '每天 03:00')
+  assert.match(describeTimer({ mode: 'weekly', time: '09:00', weekdays: [1, 3] }), /每周 周一、周三 09:00/)
+  assert.match(describeTimer({ mode: 'interval', intervalMinutes: 120 }), /每 2 小时/)
+  assert.equal(timerIsPeriodic({ mode: 'daily', time: '03:00' }), true)
+  assert.equal(timerIsPeriodic({ mode: 'once', at: once }), false)
+  assert.match(formatDateTime(once), /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)
+  assert.match(timerValidationProblems({ mode: 'once', at: from - 3600000 }, from).join(';'), /已过去/)
+  assert.match(timerValidationProblems({ mode: 'weekly', time: '09:00', weekdays: [] }, from).join(';'), /至少选择一天/)
+  assert.match(timerValidationProblems({ mode: 'interval', intervalMinutes: 0 }, from).join(';'), /大于 0/)
+})
+
+test('action helpers describe and validate every action kind', () => {
+  assert.match(describeAction({ kind: 'shutdown', delaySeconds: 60 }), /自动关机（60 秒后）/)
+  assert.match(describeAction({ kind: 'http-request', method: 'POST', url: 'https://example.com/hook' }), /POST 请求/)
+  assert.match(describeAction({ kind: 'log', text: '完成' }), /写入日志/)
+  assert.deepEqual(actionValidationProblems({ kind: 'log' }), [])
+  assert.match(actionValidationProblems({ kind: 'open-url', url: 'not-a-url' }).join(';'), /http/)
+  assert.match(actionValidationProblems({ kind: 'run-command', command: '  ' }).join(';'), /命令/)
+  assert.match(actionValidationProblems({ kind: 'http-request', url: 'https://example.com', method: 'TRACE' }).join(';'), /HTTP 方法/)
+  assert.match(actionValidationProblems({ kind: 'bogus' }).join(';'), /未知的动作类型/)
+})
+
+test('validation covers timer, action and wait wiring', () => {
+  const definition = workflow(
+    [
+      timerNode('t', '定时', { mode: 'weekly', time: '03:00', weekdays: [] }),
+      actionNode('a', '动作', { kind: 'open-url', url: 'nope' }),
+      waitNode('w', '等待', []),
+      task('b', '任务 B'),
+    ],
+    [
+      ['t', 'a'],
+      ['a', 'w'],
+      ['w', 'b'],
+    ],
+  )
+  const text = validateWorkflow(definition).join(';')
+  assert.match(text, /定时节点「定时」每周触发需要至少选择一天/)
+  assert.match(text, /动作节点「动作」需要填写以 http/)
+  assert.match(text, /等待任务完成节点「等待」还没有选择要等待的任务/)
+  const noOutput = workflow([timerNode('t2', '孤立定时', { mode: 'daily', time: '03:00' })], [])
+  assert.match(validateWorkflow(noOutput).join(';'), /缺少输出连线/)
+  const danglingWait = workflow([waitNode('w2', '孤立等待', [{ id: 's-1', title: 'x' }])], [])
+  assert.match(validateWorkflow(danglingWait).join(';'), /缺少输出连线/)
+  const pastOnce = workflow([timerNode('t3', '过期定时', { mode: 'once', at: Date.now() - 3600000 }), task('b3', 'B')], [['t3', 'b3']])
+  assert.match(validateWorkflow(pastOnce).join(';'), /一次性触发时间已过去/)
+})
+
+test('a mid-flow timer waits for its instant and then releases downstream nodes', { timeout: 5000 }, async () => {
+  const started = []
+  const fireAt = Date.now() + 180
+  const { engine, recorded } = createControlHarness({
+    executeTask: async ({ node }) => {
+      started.push(node.id)
+      return { sessionId: `s-${node.id}`, output: `${node.id} done` }
+    },
+  })
+  const definition = workflow(
+    [task('a', '任务 A'), timerNode('t', '定时', { mode: 'once', at: fireAt }), task('b', '任务 B')],
+    [
+      ['a', 't'],
+      ['t', 'b'],
+    ],
+  )
+  await engine.start(undefined, definition)
+  await waitFor(() => started.includes('a'))
+  await delay(80)
+  assert.equal(started.includes('b'), false)
+  await waitFor(() => started.includes('b'), 3000)
+  await waitFor(() => recorded.length === 1)
+  assert.equal(recorded[0].status, 'completed')
+  assert.equal(recorded[0].nodes.t.status, 'completed')
+  assert.ok(recorded[0].nodes.t.timerState.firedAt > 0)
+  assert.ok(recorded[0].log.some((entry) => entry.message.includes('定时节点「定时」触发')))
+})
+
+test('a root timer node fires immediately on a manual run', { timeout: 5000 }, async () => {
+  const started = []
+  const { engine, recorded } = createControlHarness({
+    executeTask: async ({ node }) => {
+      started.push(node.id)
+      return { sessionId: `s-${node.id}`, output: 'ok' }
+    },
+  })
+  const definition = workflow(
+    [timerNode('t', '定时', { mode: 'once', at: Date.now() + 3600000 }), task('b', '任务 B')],
+    [['t', 'b']],
+  )
+  await engine.start(undefined, definition)
+  await waitFor(() => recorded.length === 1)
+  assert.deepEqual(started, ['b'])
+  assert.equal(recorded[0].status, 'completed')
+  assert.ok(recorded[0].log.some((entry) => entry.message.includes('起始节点立即触发')))
+})
+
+test('stopping a run cancels a pending timer wait instead of pinning the run', { timeout: 5000 }, async () => {
+  const { engine, recorded } = createControlHarness({
+    executeTask: async ({ node }) => ({ sessionId: `s-${node.id}`, output: 'ok' }),
+  })
+  const definition = workflow(
+    [task('a', '任务 A'), timerNode('t', '定时', { mode: 'once', at: Date.now() + 60000 }), task('b', '任务 B')],
+    [
+      ['a', 't'],
+      ['t', 'b'],
+    ],
+  )
+  const run = await engine.start(undefined, definition)
+  await waitFor(() => engine.getRun(run.id)?.nodes?.t?.status === 'running', 3000)
+  engine.stop(run.id, { cancelTasks: false })
+  await waitFor(() => recorded.length === 1, 3000)
+  assert.equal(recorded[0].status, 'cancelled')
+  assert.equal(recorded[0].nodes.t.status, 'cancelled')
+  assert.equal(recorded[0].nodes.b.status, 'cancelled')
+})
+
+test('an action node runs the injected executor and records its summary', { timeout: 5000 }, async () => {
+  const executed = []
+  const { engine, recorded } = createControlHarness({
+    executeTask: async ({ node }) => ({ sessionId: `s-${node.id}`, output: '任务完成' }),
+    executeAction: async ({ node, action }) => {
+      executed.push({ nodeId: node.id, action })
+      return { summary: '已计划 60 秒后关机' }
+    },
+  })
+  const definition = workflow(
+    [task('a', '任务 A'), actionNode('x', '关机', { kind: 'shutdown', dryRun: false, delaySeconds: 60 })],
+    [['a', 'x']],
+  )
+  await engine.start(undefined, definition)
+  await waitFor(() => recorded.length === 1)
+  assert.equal(recorded[0].status, 'completed')
+  assert.equal(executed.length, 1)
+  assert.equal(executed[0].action.kind, 'shutdown')
+  assert.equal(recorded[0].nodes.x.status, 'completed')
+  assert.equal(recorded[0].nodes.x.output, '已计划 60 秒后关机')
+})
+
+test('a failing action node fails the run', { timeout: 5000 }, async () => {
+  const { engine, recorded } = createControlHarness({
+    executeTask: async ({ node }) => ({ sessionId: `s-${node.id}`, output: 'ok' }),
+    executeAction: async () => {
+      throw new Error('命令退出码 1')
+    },
+  })
+  const definition = workflow(
+    [actionNode('x', '动作', { kind: 'run-command', dryRun: false, command: 'false' }), task('b', '后续')],
+    [['x', 'b']],
+  )
+  await engine.start(undefined, definition)
+  await waitFor(() => recorded.length === 1)
+  assert.equal(recorded[0].status, 'failed')
+  assert.equal(recorded[0].nodes.x.status, 'failed')
+  assert.match(recorded[0].nodes.x.error, /命令退出码 1/)
+  assert.equal(recorded[0].nodes.b.status, 'skipped')
+})
+
+test('a wait node blocks until the selected task is really quiescent', { timeout: 8000 }, async () => {
+  const targetSession = fakeSession('ext-1')
+  const targetAgent = { id: 'ext-1', status: 'running', session: targetSession }
+  const started = []
+  const { engine, recorded } = createControlHarness({
+    sessions: new Map([['ext-1', targetSession]]),
+    agents: new Map([['ext-1', targetAgent]]),
+    executeTask: async ({ node }) => {
+      started.push(node.id)
+      return { sessionId: `s-${node.id}`, output: 'downstream done' }
+    },
+    engineOptions: { waitPollMs: 20 },
+  })
+  const definition = workflow(
+    [waitNode('w', '等待外部任务', [{ id: 'ext-1', title: '外部任务' }]), task('b', '后续任务')],
+    [['w', 'b']],
+  )
+  targetSession.push('turn/start')
+  await engine.start(undefined, definition)
+  await delay(120)
+  assert.deepEqual(started, [])
+  targetAgent.status = 'idle'
+  targetSession.push('assistant/message', { message: assistantMessage('外部任务完成') })
+  targetSession.push('turn/end', { reason: { kind: 'completed' } })
+  await waitFor(() => started.includes('b'), 5000)
+  await waitFor(() => recorded.length === 1)
+  assert.equal(recorded[0].status, 'completed')
+  assert.equal(recorded[0].nodes.w.status, 'completed')
+  assert.equal(recorded[0].nodes.w.waitState.targets[0].status, 'completed')
+})
+
+test('a wait node does not complete while the task waits on a user question', { timeout: 8000 }, async () => {
+  const targetSession = fakeSession('ext-2')
+  const targetAgent = { id: 'ext-2', status: 'idle', session: targetSession }
+  const started = []
+  const { engine, recorded } = createControlHarness({
+    sessions: new Map([['ext-2', targetSession]]),
+    agents: new Map([['ext-2', targetAgent]]),
+    executeTask: async ({ node }) => {
+      started.push(node.id)
+      return { sessionId: `s-${node.id}`, output: 'ok' }
+    },
+    engineOptions: { waitPollMs: 20 },
+  })
+  const definition = workflow(
+    [waitNode('w', '等待外部任务', [{ id: 'ext-2', title: '外部任务' }]), task('b', '后续任务')],
+    [['w', 'b']],
+  )
+  targetSession.push('turn/start')
+  targetSession.push('tool/call', {
+    name: 'ask_user_question',
+    callId: 'ask-1',
+    arguments: JSON.stringify({ questions: [{ id: 'q1', question: '用哪个标题？' }] }),
+  })
+  targetSession.push('turn/end', { reason: { kind: 'completed' } })
+  await engine.start(undefined, definition)
+  await delay(220)
+  assert.deepEqual(started, [])
+  // The user answers: the question settles and a new turn completes.
+  targetSession.push('tool/result', { message: { toolCallId: 'ask-1' } })
+  targetSession.push('turn/start')
+  targetSession.push('assistant/message', { message: assistantMessage('外部任务完成') })
+  targetSession.push('turn/end', { reason: { kind: 'completed' } })
+  await waitFor(() => started.includes('b'), 5000)
+  await waitFor(() => recorded.length === 1)
+  assert.equal(recorded[0].status, 'completed')
+})
+
+test('a wait node does not complete while child subagent work can still join', { timeout: 8000 }, async () => {
+  const targetSession = fakeSession('ext-3')
+  const targetAgent = { id: 'ext-3', status: 'idle', session: targetSession }
+  let hasChildren = true
+  const started = []
+  const { engine, recorded } = createControlHarness({
+    sessions: new Map([['ext-3', targetSession]]),
+    agents: new Map([['ext-3', targetAgent]]),
+    subagents: {
+      waitForChildren() {
+        return Promise.resolve(hasChildren)
+      },
+    },
+    executeTask: async ({ node }) => {
+      started.push(node.id)
+      return { sessionId: `s-${node.id}`, output: 'ok' }
+    },
+    engineOptions: { waitPollMs: 20 },
+  })
+  const definition = workflow(
+    [waitNode('w', '等待外部任务', [{ id: 'ext-3', title: '外部任务' }]), task('b', '后续任务')],
+    [['w', 'b']],
+  )
+  targetSession.push('turn/start')
+  targetSession.push('assistant/message', { message: assistantMessage('阶段性回复') })
+  targetSession.push('turn/end', { reason: { kind: 'completed' } })
+  await engine.start(undefined, definition)
+  await delay(220)
+  assert.deepEqual(started, [])
+  hasChildren = false
+  await waitFor(() => started.includes('b'), 5000)
+  await waitFor(() => recorded.length === 1)
+  assert.equal(recorded[0].status, 'completed')
+})
+
+test('a wait node fails when a selected task failed, and does not start downstream nodes', { timeout: 8000 }, async () => {
+  const targetSession = fakeSession('ext-4')
+  const targetAgent = { id: 'ext-4', status: 'idle', session: targetSession }
+  const started = []
+  const { engine, recorded } = createControlHarness({
+    sessions: new Map([['ext-4', targetSession]]),
+    agents: new Map([['ext-4', targetAgent]]),
+    executeTask: async ({ node }) => {
+      started.push(node.id)
+      return { sessionId: `s-${node.id}`, output: 'ok' }
+    },
+    engineOptions: { waitPollMs: 20 },
+  })
+  const definition = workflow(
+    [waitNode('w', '等待外部任务', [{ id: 'ext-4', title: '外部任务' }]), task('b', '后续任务')],
+    [['w', 'b']],
+  )
+  targetSession.push('turn/start')
+  targetSession.push('turn/end', { reason: { kind: 'error', error: { code: 'BOOM', message: '任务崩了' } } })
+  await engine.start(undefined, definition)
+  await waitFor(() => recorded.length === 1, 5000)
+  assert.equal(recorded[0].status, 'failed')
+  assert.equal(recorded[0].nodes.w.status, 'failed')
+  assert.match(recorded[0].nodes.w.error, /外部任务.*未成功完成/)
+  assert.equal(recorded[0].nodes.b.status, 'skipped')
+  assert.deepEqual(started, [])
+})
+
+test('stopping cancels a wait node instead of waiting for external tasks', { timeout: 5000 }, async () => {
+  const targetSession = fakeSession('ext-5')
+  const targetAgent = { id: 'ext-5', status: 'running', session: targetSession }
+  const { engine, recorded } = createControlHarness({
+    sessions: new Map([['ext-5', targetSession]]),
+    agents: new Map([['ext-5', targetAgent]]),
+    executeTask: async ({ node }) => ({ sessionId: `s-${node.id}`, output: 'ok' }),
+    engineOptions: { waitPollMs: 20 },
+  })
+  const definition = workflow(
+    [waitNode('w', '等待外部任务', [{ id: 'ext-5', title: '外部任务' }]), task('b', '后续任务')],
+    [['w', 'b']],
+  )
+  targetSession.push('turn/start')
+  const run = await engine.start(undefined, definition)
+  await delay(80)
+  engine.stop(run.id, { cancelTasks: false })
+  await waitFor(() => recorded.length === 1, 3000)
+  assert.equal(recorded[0].status, 'cancelled')
+  assert.equal(recorded[0].nodes.w.status, 'cancelled')
+  assert.equal(recorded[0].nodes.b.status, 'cancelled')
+})
+
+test('listWaitCandidates reports live non-subagent tasks', { timeout: 5000 }, async () => {
+  const liveSession = fakeSession('s-live')
+  const liveAgent = { id: 's-live', status: 'running', session: { ...liveSession, header: { origin: undefined } } }
+  const childSession = fakeSession('s-child')
+  const childAgent = { id: 's-child', status: 'running', session: { ...childSession, header: { origin: 'subagent', delegationDepth: 1 } } }
+  const { engine } = createControlHarness({
+    agents: new Map([
+      ['s-live', liveAgent],
+      ['s-child', childAgent],
+    ]),
+  })
+  const tasks = await engine.listWaitCandidates()
+  assert.deepEqual(tasks.map((task) => task.sessionId), ['s-live'])
+  assert.equal(tasks[0].status, 'running')
+})
+
+// ---------------------------------------------------------------------------
+// 定时调度器：自动启动工作流
+// ---------------------------------------------------------------------------
+
+function createScheduleHarness({ workflows, nowRef, executeTask }) {
+  const recorded = []
+  const ctx = {
+    logger: { info() {}, warn() {} },
+    get() {
+      return undefined
+    },
+    on() {
+      return () => {}
+    },
+    sessionController: { cancel() {} },
+  }
+  const store = {
+    runs() {
+      return recorded.slice()
+    },
+    recordRun(run) {
+      recorded.push(run)
+    },
+    ready() {
+      return Promise.resolve()
+    },
+    get(id) {
+      return workflows.find((workflow) => workflow.id === id)
+    },
+    workflows() {
+      return workflows.slice()
+    },
+    save(workflow) {
+      return workflow
+    },
+  }
+  const catalogs = {
+    async get() {
+      return { defaults: {} }
+    },
+  }
+  const engine = new WorkflowEngine(ctx, store, catalogs, {
+    schedulerEnabled: false,
+    now: () => nowRef.value,
+    executeTask: executeTask ?? (async ({ node }) => ({ sessionId: `s-${node.id}`, output: 'scheduled ok' })),
+  })
+  return { engine, recorded }
+}
+
+test('the scheduler auto-starts a one-shot timer workflow at its instant', { timeout: 8000 }, async () => {
+  const nowRef = { value: 1_800_000_000_000 }
+  const workflowTarget = {
+    ...workflow([timerNode('t', '定时', { mode: 'once', at: nowRef.value + 5000 }), task('b', '任务 B')], [['t', 'b']]),
+    id: 'wf-scheduled',
+  }
+  const { engine, recorded } = createScheduleHarness({ workflows: [workflowTarget], nowRef })
+  await engine.tickSchedules()
+  assert.equal(recorded.length, 0)
+  assert.equal(engine.active.size, 0)
+  nowRef.value += 5001
+  await engine.tickSchedules()
+  await waitFor(() => recorded.length === 1, 5000)
+  assert.equal(recorded[0].status, 'completed')
+  assert.equal(recorded[0].trigger.kind, 'timer')
+  assert.equal(recorded[0].trigger.nodeId, 't')
+  assert.equal(recorded[0].trigger.scheduledAt, 1_800_000_005_000)
+  // The same one-shot does not fire twice.
+  await engine.tickSchedules()
+  await delay(50)
+  assert.equal(recorded.length, 1)
+})
+
+test('the scheduler summary counts periodic workflows and exposes the next trigger', { timeout: 5000 }, async () => {
+  const now = new Date(2026, 10, 22, 1, 0, 0, 0).getTime()
+  const nowRef = { value: now }
+  const definition = {
+    ...workflow([timerNode('t', '每天三点', { mode: 'daily', time: '03:00' }), task('b', '任务 B')], [['t', 'b']]),
+    id: 'wf-periodic',
+    name: '每日任务',
+  }
+  const { engine } = createScheduleHarness({ workflows: [definition], nowRef })
+  await engine.refreshSchedulerSummary()
+  const summary = engine.schedulerSnapshot()
+  assert.equal(summary.count, 1)
+  assert.equal(summary.workflows[0].workflowName, '每日任务')
+  assert.equal(summary.workflows[0].periodic, true)
+  assert.equal(summary.workflows[0].nextAt, new Date(2026, 10, 22, 3, 0, 0, 0).getTime())
+  assert.equal(summary.workflows[0].valid, true)
+})
+
+test('the scheduler skips a due periodic trigger while the workflow is already running', { timeout: 8000 }, async () => {
+  const now = new Date(2026, 10, 22, 2, 59, 0, 0).getTime()
+  const nowRef = { value: now }
+  const gate = deferred()
+  let runsStarted = 0
+  const definition = {
+    ...workflow([timerNode('t', '每天三点', { mode: 'daily', time: '03:00' }), task('b', '任务 B')], [['t', 'b']]),
+    id: 'wf-busy',
+    name: '忙工作流',
+  }
+  const { engine, recorded } = createScheduleHarness({
+    workflows: [definition],
+    nowRef,
+    executeTask: async ({ node }) => {
+      runsStarted += 1
+      if (runsStarted === 1) await gate.promise
+      return { sessionId: `s-${node.id}`, output: 'ok' }
+    },
+  })
+  nowRef.value = new Date(2026, 10, 22, 3, 0, 1, 0).getTime()
+  await engine.tickSchedules()
+  await waitFor(() => runsStarted === 1, 5000)
+  nowRef.value = new Date(2026, 10, 23, 3, 0, 1, 0).getTime()
+  await engine.tickSchedules()
+  await delay(80)
+  assert.equal(runsStarted, 1)
+  gate.resolve()
+  await waitFor(() => recorded.length === 1, 5000)
+  assert.equal(recorded[0].status, 'completed')
+})
+
+test('the scheduler does not start a periodic workflow that fails validation', { timeout: 5000 }, async () => {
+  const now = new Date(2026, 10, 22, 2, 59, 0, 0).getTime()
+  const nowRef = { value: now }
+  let runsStarted = 0
+  const definition = {
+    ...workflow([timerNode('t', '每天三点', { mode: 'daily', time: '03:00' }), task('b', '任务 B', '')], [['t', 'b']]),
+    id: 'wf-invalid',
+    name: '未通过校验',
+  }
+  const { engine, recorded } = createScheduleHarness({
+    workflows: [definition],
+    nowRef,
+    executeTask: async () => {
+      runsStarted += 1
+      return { sessionId: 's-b', output: 'ok' }
+    },
+  })
+  nowRef.value = new Date(2026, 10, 22, 3, 0, 1, 0).getTime()
+  await engine.tickSchedules()
+  await delay(80)
+  assert.equal(runsStarted, 0)
+  assert.equal(recorded.length, 0)
+  assert.equal(engine.schedulerSnapshot().workflows[0].valid, false)
+})
+
+test('rootTimerNodes only returns entry timers', () => {
+  const definition = workflow(
+    [timerNode('root', '入口定时', { mode: 'daily', time: '03:00' }), task('a', '任务 A'), timerNode('mid', '流程内定时', { mode: 'daily', time: '04:00' })],
+    [
+      ['root', 'a'],
+      ['a', 'mid'],
+    ],
+  )
+  assert.deepEqual(rootTimerNodes(definition).map((node) => node.id), ['root'])
+})
+
+test('dryRun is the safe default and produces no real side effect', async () => {
+  const result = await executeActionReal({ action: { kind: 'shutdown', delaySeconds: 60 } })
+  assert.match(result.summary, /试运行/)
+  assert.match(result.summary, /自动关机/)
+  const logResult = await executeActionReal({ action: { kind: 'log', dryRun: false, text: '完成' } })
+  assert.match(logResult.summary, /完成/)
+  assert.match(actionValidationProblems({ kind: 'http-request', method: 'GET', url: 'https://example.com', body: '{}' }).join(';'), /GET 请求不能带请求体/)
+})
+
+test('the scheduler catches up a one-shot inside the 10-minute grace window', { timeout: 8000 }, async () => {
+  const base = Date.now() + 60000
+  const nowRef = { value: base }
+  const definition = {
+    ...workflow([timerNode('t', '近未来', { mode: 'once', at: base + 5000 }), task('b', '任务 B')], [['t', 'b']]),
+    id: 'wf-grace',
+    name: '补触发窗口',
+  }
+  const { engine, recorded } = createScheduleHarness({ workflows: [definition], nowRef })
+  nowRef.value = base + 5 * 60 * 1000
+  await engine.tickSchedules()
+  await waitFor(() => recorded.length === 1, 5000)
+  assert.equal(recorded[0].status, 'completed')
+  assert.equal(recorded[0].trigger.scheduledAt, base + 5000)
+})
+
+test('the scheduler does not catch up a one-shot older than the grace window', { timeout: 8000 }, async () => {
+  const base = Date.now() + 60000
+  const nowRef = { value: base }
+  const definition = {
+    ...workflow([timerNode('t', '过期', { mode: 'once', at: base + 5000 }), task('b', '任务 B')], [['t', 'b']]),
+    id: 'wf-missed',
+    name: '错过窗口',
+  }
+  const { engine, recorded } = createScheduleHarness({ workflows: [definition], nowRef })
+  nowRef.value = base + 20 * 60 * 1000
+  await engine.tickSchedules()
+  await delay(80)
+  assert.equal(recorded.length, 0)
+  assert.equal(engine.schedulerSnapshot().workflows[0].missed, true)
+  await engine.tickSchedules()
+  await delay(50)
+  assert.equal(recorded.length, 0)
+})
+
+test('a long sleep catches a periodic timer up once instead of replaying every missed period', { timeout: 8000 }, async () => {
+  const base = new Date(2026, 10, 22, 3, 0, 0, 0).getTime()
+  const nowRef = { value: base }
+  const definition = {
+    ...workflow([timerNode('t', '每分钟', { mode: 'interval', intervalMinutes: 1 }), task('b', '任务 B')], [['t', 'b']]),
+    id: 'wf-catchup',
+    name: '补触发一次',
+  }
+  const { engine, recorded } = createScheduleHarness({ workflows: [definition], nowRef })
+  nowRef.value = base + 5 * 60 * 1000 + 1000
+  await engine.tickSchedules()
+  await waitFor(() => recorded.length === 1, 5000)
+  await engine.tickSchedules()
+  await delay(120)
+  assert.equal(recorded.length, 1)
+})
+
+test('a wait node times out after twelve hours of waiting', { timeout: 8000 }, async () => {
+  const clockRef = { value: Date.now() }
+  const targetSession = fakeSession('ext-long')
+  const targetAgent = { id: 'ext-long', status: 'running', session: targetSession }
+  const { engine, recorded } = createControlHarness({
+    sessions: new Map([['ext-long', targetSession]]),
+    agents: new Map([['ext-long', targetAgent]]),
+    executeTask: async ({ node }) => ({ sessionId: `s-${node.id}`, output: 'ok' }),
+    engineOptions: { waitPollMs: 15, now: () => clockRef.value },
+  })
+  const definition = workflow(
+    [waitNode('w', '等待超时', [{ id: 'ext-long', title: '长任务' }]), task('b', '后续')],
+    [['w', 'b']],
+  )
+  targetSession.push('turn/start')
+  await engine.start(undefined, definition)
+  await delay(80)
+  clockRef.value += 12 * 60 * 60 * 1000 + 1000
+  await waitFor(() => recorded.length === 1, 5000)
+  assert.equal(recorded[0].status, 'failed')
+  assert.match(recorded[0].nodes.w.error, /等待超时/)
+})
+
+test('a closed task session fails the wait node instead of silently completing it', { timeout: 8000 }, async () => {
+  const { engine, recorded } = createControlHarness({
+    executeTask: async ({ node }) => ({ sessionId: `s-${node.id}`, output: 'ok' }),
+    engineOptions: { waitPollMs: 15 },
+  })
+  const definition = workflow(
+    [waitNode('w', '等不到的任务', [{ id: 'session-gone', title: '已关闭任务' }]), task('b', '后续')],
+    [['w', 'b']],
+  )
+  await engine.start(undefined, definition)
+  await waitFor(() => recorded.length === 1, 5000)
+  assert.equal(recorded[0].status, 'failed')
+  assert.match(recorded[0].nodes.w.error, /会话已关闭/)
+  assert.equal(recorded[0].nodes.b.status, 'skipped')
+})
+
+test('a wait node accepts the waitForTreeWork host API', { timeout: 8000 }, async () => {
+  const targetSession = fakeSession('ext-tree')
+  const targetAgent = { id: 'ext-tree', status: 'idle', session: targetSession }
+  let calls = 0
+  const started = []
+  const { engine, recorded } = createControlHarness({
+    sessions: new Map([['ext-tree', targetSession]]),
+    agents: new Map([['ext-tree', targetAgent]]),
+    subagents: {
+      waitForTreeWork() {
+        calls += 1
+        return Promise.resolve(calls === 1)
+      },
+    },
+    executeTask: async ({ node }) => {
+      started.push(node.id)
+      return { sessionId: `s-${node.id}`, output: 'ok' }
+    },
+    engineOptions: { waitPollMs: 15 },
+  })
+  const definition = workflow(
+    [waitNode('w', '等待任务', [{ id: 'ext-tree', title: '外部任务' }]), task('b', '后续')],
+    [['w', 'b']],
+  )
+  targetSession.push('turn/start')
+  targetSession.push('assistant/message', { message: assistantMessage('done') })
+  targetSession.push('turn/end', { reason: { kind: 'completed' } })
+  await engine.start(undefined, definition)
+  await waitFor(() => started.includes('b'), 5000)
+  await waitFor(() => recorded.length === 1)
+  assert.equal(recorded[0].status, 'completed')
+  assert.ok(calls >= 2)
+})
+
+test('terminating the run skips a pending wait node', { timeout: 8000 }, async () => {
+  const targetSession = fakeSession('ext-term')
+  const targetAgent = { id: 'ext-term', status: 'running', session: targetSession }
+  const { engine, recorded } = createControlHarness({
+    sessions: new Map([['ext-term', targetSession]]),
+    agents: new Map([['ext-term', targetAgent]]),
+    executeTask: async ({ node }) => ({ sessionId: `s-${node.id}`, output: 'ok' }),
+    engineOptions: { waitPollMs: 20 },
+  })
+  const definition = workflow(
+    [waitNode('w', '等待任务', [{ id: 'ext-term', title: '外部任务' }]), task('b', '后续任务'), task('a', '任务 A'), terminate('t', '终止', { stopPolicy: 'detach' })],
+    [['w', 'b'], ['a', 't']],
+  )
+  targetSession.push('turn/start')
+  await engine.start(undefined, definition)
+  await waitFor(() => recorded.length === 1, 5000)
+  assert.equal(recorded[0].nodes.w.status, 'skipped')
+  assert.equal(recorded[0].terminated, true)
+  assert.equal(recorded[0].status, 'completed')
+})
+
+test('a wait failure keeps the run failed even when a terminate node fires later', { timeout: 8000 }, async () => {
+  const targetSession = fakeSession('ext-fail-term')
+  const targetAgent = { id: 'ext-fail-term', status: 'idle', session: targetSession }
+  const gate = deferred()
+  const { engine, recorded } = createControlHarness({
+    sessions: new Map([['ext-fail-term', targetSession]]),
+    agents: new Map([['ext-fail-term', targetAgent]]),
+    executeTask: async ({ node }) => {
+      if (node.id === 'a') await gate.promise
+      return { sessionId: `s-${node.id}`, output: 'ok' }
+    },
+    engineOptions: { waitPollMs: 15 },
+  })
+  const definition = workflow(
+    [waitNode('w', '等待失败任务', [{ id: 'ext-fail-term', title: '崩掉的任务' }]), task('b', '后续任务'), task('a', '任务 A'), terminate('t', '终止', { stopPolicy: 'detach' })],
+    [['w', 'b'], ['a', 't']],
+  )
+  targetSession.push('turn/start')
+  targetSession.push('turn/end', { reason: { kind: 'error', error: { code: 'BOOM', message: '崩了' } } })
+  await engine.start(undefined, definition)
+  await waitFor(() => engine.getRun([...engine.active.keys()][0])?.nodes?.w?.status === 'failed', 5000)
+  gate.resolve()
+  await waitFor(() => recorded.length === 1, 5000)
+  assert.equal(recorded[0].status, 'failed')
+  assert.equal(recorded[0].nodes.w.status, 'failed')
+  assert.equal(recorded[0].terminated, true)
 })

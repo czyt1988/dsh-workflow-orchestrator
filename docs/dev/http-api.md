@@ -24,7 +24,7 @@
 { "ok": false, "error": { "code": "workflow-error", "message": "工作流不存在" } }
 ```
 
-固定响应头（[`lib/host/routes.js:22`](../../lib/host/routes.js#L22)）：
+固定响应头（[`lib/host/routes.js:24`](../../lib/host/routes.js#L24)）：
 
 | 头 | 值 |
 | --- | --- |
@@ -32,11 +32,11 @@
 | `cache-control` | `no-store` |
 | `content-length` | 响应体字节数 |
 
-面板侧用 `payload?.ok !== true` 判定失败，并把 `error.message` 直接显示成横幅（[`lib/client.js:240`](../../lib/client.js#L240)）。
+面板侧用 `payload?.ok !== true` 判定失败，并把 `error.message` 直接显示成横幅（[`lib/client.js:329`](../../lib/client.js#L329)）。
 
 ### 1.2 准入栅栏
 
-每个请求（包括 404 路径）都会先调用 `connection.requestRejection(req)`（[`lib/host/routes.js:75`](../../lib/host/routes.js#L75)）：
+每个请求（包括 404 路径）都会先调用 `connection.requestRejection(req)`（[`lib/host/routes.js:77`](../../lib/host/routes.js#L77)）：
 
 - 返回非 `undefined` → `403 forbidden`，消息固定为 `request rejected by the host connection policy`；
 - 调用本身抛异常 → 同样按拒绝处理。
@@ -45,16 +45,16 @@
 
 ### 1.3 请求体
 
-- 只有 POST 路由读取请求体；上限 `2 * 1024 * 1024` 字节（[`lib/host/routes.js:19`](../../lib/host/routes.js#L19)）。
+- 只有 POST 路由读取请求体；上限 `2 * 1024 * 1024` 字节（[`lib/host/routes.js:21`](../../lib/host/routes.js#L21)）。
 - 超限抛「请求体过大」，最终是 **400 `workflow-error`**，而不是 413。
 - 空请求体按 `{}` 处理；非空但不是合法 JSON 会解析失败，同样是 400。
-- 顶层不是对象（例如 `[]`、`null`）时按 `{}` 处理（[`lib/host/routes.js:46`](../../lib/host/routes.js#L46)）。
+- 顶层不是对象（例如 `[]`、`null`）时按 `{}` 处理（[`lib/host/routes.js:48`](../../lib/host/routes.js#L48)）。
 
 ### 1.4 方法与路径分派
 
-分派顺序（[`lib/host/routes.js:89`](../../lib/host/routes.js#L89)）：
+分派顺序（[`lib/host/routes.js:91`](../../lib/host/routes.js#L91)）：
 
-1. `GET /api/health`、`GET /api/state`、`GET /api/run` 单独匹配；
+1. `GET /api/health`、`GET /api/state`、`GET /api/run`、`GET /api/periodic`、`GET /api/tasks` 单独匹配；
 2. 其余命中 `GET_ONLY_ROUTES` 的请求 → **405 `method-error`**；
 3. 不在 `POST_ROUTES` 里的路径 → **404 `not-found`**；
 4. 命中 POST 路由但不是 POST 方法 → **405 `method-error`**；
@@ -69,6 +69,8 @@
 | GET | `/api/health` | 无 | `{ pid, version }` |
 | GET | `/api/state` | 查询参数 `refresh=1` 可选 | `{ workflows, activeWorkflowId, catalogs, engine }` |
 | GET | `/api/run` | 查询参数 `runId` 可选 | `{ run, engine }` |
+| GET | `/api/periodic` | 无 | `{ count, onceCount, workflows, checkedAt }` |
+| GET | `/api/tasks` | 无 | `{ tasks }` |
 | POST | `/api/create` | `{ name?, workspaceId? }` | `{ workflow, activeWorkflowId }` |
 | POST | `/api/save` | `{ workflow }` | `{ workflow }` |
 | POST | `/api/delete` | `{ workflowId }` | `{ removed, activeWorkflowId }` |
@@ -102,7 +104,7 @@ sequenceDiagram
 
 ### 3.1 `GET /api/health`
 
-最小健康检查，返回进程信息（[`lib/host/routes.js:89`](../../lib/host/routes.js#L89)）：
+最小健康检查，返回进程信息（[`lib/host/routes.js:91`](../../lib/host/routes.js#L91)）：
 
 ```json
 { "ok": true, "value": { "pid": 12345, "version": 1 } }
@@ -112,7 +114,7 @@ sequenceDiagram
 
 ### 3.2 `GET /api/state`
 
-面板 bootstrap 的唯一入口（[`lib/host/routes.js:93`](../../lib/host/routes.js#L93)）。`refresh=1` 会强制重建选项目录缓存；不带参数时用 60 秒缓存（[`lib/host/catalogs.js:134`](../../lib/host/catalogs.js#L134)）。
+面板 bootstrap 的唯一入口（[`lib/host/routes.js:95`](../../lib/host/routes.js#L95)）。`refresh=1` 会强制重建选项目录缓存；不带参数时用 60 秒缓存（[`lib/host/catalogs.js:134`](../../lib/host/catalogs.js#L134)）。
 
 ```json
 {
@@ -181,7 +183,7 @@ sequenceDiagram
 
 ### 3.3 `GET /api/run`
 
-轮询接口（[`lib/host/routes.js:98`](../../lib/host/routes.js#L98)）：
+轮询接口（[`lib/host/routes.js:100`](../../lib/host/routes.js#L100)）：
 
 - 不带 `runId`：返回 `engine.snapshotRuns().slice(-1)[0]`，即最近开始的一条运行；
 - 带 `runId`：返回该运行（内存优先，其次持久化历史），找不到时 `run: null`。
@@ -242,11 +244,11 @@ sequenceDiagram
 }
 ```
 
-`run` 是 `publicRun()` 视图：比持久化记录多 `terminatedHadFailure`、`terminatedPolicy`、`failureSeen`、节点 `summary`，日志只保留最近 800 行（[`lib/host/engine.js:424`](../../lib/host/engine.js#L424)）。`run.startNodeId` 为 `null` 表示全量执行，为字符串表示本次从该节点开始执行；此时不在范围内的节点状态为 `not-run`。判断节点在节点状态里带 `decision`（`CONTINUE` / `STOP`）；提前终止的运行带 `terminated / terminatedBy / terminatedReason / terminatedAt`。`engine.runs` 最多 10 条。
+`run` 是 `publicRun()` 视图：比持久化记录多 `terminatedHadFailure`、`terminatedPolicy`、`failureSeen`、节点 `summary`，日志只保留最近 800 行（[`lib/host/engine.js:569`](../../lib/host/engine.js#L569)）。`run.startNodeId` 为 `null` 表示全量执行，为字符串表示本次从该节点开始执行；此时不在范围内的节点状态为 `not-run`。判断节点在节点状态里带 `decision`（`CONTINUE` / `STOP`）；提前终止的运行带 `terminated / terminatedBy / terminatedReason / terminatedAt`。`engine.runs` 最多 10 条。
 
 ### 3.4 `POST /api/create`
 
-新建空白工作流并切换为当前工作流（[`lib/host/routes.js:127`](../../lib/host/routes.js#L127)）。
+新建空白工作流并切换为当前工作流（[`lib/host/routes.js:142`](../../lib/host/routes.js#L142)）。
 
 请求：
 
@@ -280,7 +282,7 @@ sequenceDiagram
 
 ### 3.5 `POST /api/save`
 
-保存（插入或替换）一个工作流定义（[`lib/host/routes.js:144`](../../lib/host/routes.js#L144)）。请求体里的 `workflow` 会完整经过清洗，响应返回**清洗后**的定义：
+保存（插入或替换）一个工作流定义（[`lib/host/routes.js:159`](../../lib/host/routes.js#L159)）。请求体里的 `workflow` 会完整经过清洗，响应返回**清洗后**的定义：
 
 ```json
 { "workflow": { "id": "wf-1a2b3c4d", "name": "示例工作流", "nodes": [], "edges": [] } }
@@ -294,7 +296,7 @@ sequenceDiagram
 
 ### 3.6 `POST /api/delete`
 
-删除工作流及其运行记录（[`lib/host/routes.js:150`](../../lib/host/routes.js#L150)）：
+删除工作流及其运行记录（[`lib/host/routes.js:165`](../../lib/host/routes.js#L165)）：
 
 ```json
 { "workflowId": "wf-1a2b3c4d" }
@@ -310,7 +312,7 @@ sequenceDiagram
 
 ### 3.7 `POST /api/active`
 
-记住面板当前显示的工作流（[`lib/host/routes.js:157`](../../lib/host/routes.js#L157)）：
+记住面板当前显示的工作流（[`lib/host/routes.js:172`](../../lib/host/routes.js#L172)）：
 
 ```json
 { "workflowId": "wf-1a2b3c4d" }
@@ -324,7 +326,7 @@ sequenceDiagram
 
 ### 3.8 `POST /api/run`
 
-启动一次运行（[`lib/host/routes.js:164`](../../lib/host/routes.js#L164)）。两种请求形态：
+启动一次运行（[`lib/host/routes.js:179`](../../lib/host/routes.js#L179)）。两种请求形态：
 
 ```json
 { "workflowId": "wf-1a2b3c4d", "workflow": { "id": "wf-1a2b3c4d", "name": "示例工作流", "nodes": [], "edges": [] } }
@@ -343,8 +345,8 @@ sequenceDiagram
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `workflowId` | string | 已保存工作流的 id；与 `workflow` 至少提供一个 |
-| `workflow` | object | 可选；当前画布覆盖版本，引擎会先保存这份定义再运行（[`lib/host/engine.js:493`](../../lib/host/engine.js#L493)） |
-| `startNodeId` | string | 可选；`null` / `undefined` / 空字符串都视为全量执行。非字符串（且非 `null`）→ 400 `workflow-error`「起始节点 ID 无效」（[`lib/host/routes.js:167`](../../lib/host/routes.js#L167)） |
+| `workflow` | object | 可选；当前画布覆盖版本，引擎会先保存这份定义再运行（[`lib/host/engine.js:1188`](../../lib/host/engine.js#L1188)） |
+| `startNodeId` | string | 可选；`null` / `undefined` / 空字符串都视为全量执行。非字符串（且非 `null`）→ 400 `workflow-error`「起始节点 ID 无效」（[`lib/host/routes.js:182`](../../lib/host/routes.js#L182)） |
 
 行为：
 
@@ -359,7 +361,7 @@ sequenceDiagram
 
 ### 3.9 `POST /api/stop`
 
-请求停止（[`lib/host/routes.js:176`](../../lib/host/routes.js#L176)）：
+请求停止（[`lib/host/routes.js:191`](../../lib/host/routes.js#L191)）：
 
 ```json
 { "runId": "run-1a2b3c4d", "cancelTasks": true }
@@ -371,6 +373,74 @@ sequenceDiagram
 | `cancelTasks` | 只有严格等于 `true` 才是「并终止运行中的任务」；其余都按 `detach` 处理 |
 
 响应 `{ run, engine }`。没有活动运行 → 400「没有正在运行的工作流」；重复 stop 不报错，直接返回当前快照。
+
+### 3.10 `GET /api/periodic`
+
+周期触发摘要，供面板顶部警告条与左侧栏黄色徽标使用（[`lib/host/routes.js`](../../lib/host/routes.js)）。处理器先调用 `engine.refreshSchedulerSummary()` 重新读取当前工作流定义，再返回缓存的 `schedulerSnapshot()`：
+
+```json
+{
+  "ok": true,
+  "value": {
+    "count": 2,
+    "onceCount": 1,
+    "workflows": [
+      {
+        "workflowId": "wf-1a2b3c4d",
+        "workflowName": "每日报告",
+        "nodeId": "node-t",
+        "nodeTitle": "每天三点",
+        "mode": "daily",
+        "periodic": true,
+        "nextAt": 1760000000000,
+        "valid": true,
+        "problems": []
+      }
+    ],
+    "checkedAt": 1760000000000
+  }
+}
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `count` | 含**周期入口定时节点**的工作流数量（侧栏徽标显示的数字） |
+| `onceCount` | 含尚未触发的一次性入口定时节点的工作流数量 |
+| `workflows` | 每个入口定时节点一条记录（最多 30 条）；`nextAt` 为下一次触发时间，`valid` / `problems` 来自运行前校验 |
+| `checkedAt` | 本次计算使用的时刻 |
+
+方法不对（例如 POST）→ 405；准入栅栏与其它路由一致。
+
+### 3.11 `GET /api/tasks`
+
+等待任务完成节点的候选列表（[`lib/host/routes.js`](../../lib/host/routes.js) 调 `engine.listWaitCandidates()`）：
+
+```json
+{
+  "ok": true,
+  "value": {
+    "tasks": [
+      {
+        "sessionId": "session-abc",
+        "title": "每日报告 / 收集数据",
+        "status": "running",
+        "waitingQuestions": 0,
+        "cwd": "D:/work/project"
+      }
+    ]
+  }
+}
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `sessionId` | 真实 DSH 任务会话 ID，勾选后写入等待节点的 `wait.targets` |
+| `title` | 插件运行节点的「工作流 / 节点」名，其次会话标题，最后回退会话 ID |
+| `status` | `running` / `waiting-user` / `idle`；宿主已按“运行中 → 等待用户回复 → 空闲”排序，面板按返回顺序渲染 |
+| `waitingQuestions` | 该会话当前待回答的提问数量（>0 时状态为 `waiting-user`） |
+| `cwd` | 会话创建时的工作目录（可选，面板显示最后一级目录帮助区分同名任务） |
+
+已排除子 Agent 会话（`session.header.origin === 'subagent'` 或 `delegationDepth > 0`），最多返回 100 条；宿主 `agents` 服务不可用时退回插件运行中的任务会话。方法不对 → 405。
 
 ## 4. 错误码
 
