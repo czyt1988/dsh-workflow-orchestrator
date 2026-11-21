@@ -52,13 +52,13 @@ flowchart TB
 | 路径 | 职责 | 入口 |
 | --- | --- | --- |
 | [`lib/index.js`](../../lib/index.js) | 宿主半区插件入口：装配 store / catalogs / engine / routes，声明注入服务 | [`apply(ctx)`](../../lib/index.js#L47) |
-| [`lib/host/engine.js`](../../lib/host/engine.js) | DAG 校验与调度、真实会话执行、日志与运行快照 | [`WorkflowEngine`](../../lib/host/engine.js#L576) |
+| [`lib/host/engine.js`](../../lib/host/engine.js) | DAG 校验与调度、真实会话执行、日志与运行快照 | [`WorkflowEngine`](../../lib/host/engine.js#L601) |
 | [`lib/host/store.js`](../../lib/host/store.js) | `workflows.json` 的读写、输入清洗、原子持久化、损坏恢复 | [`WorkflowStore`](../../lib/host/store.js#L330) |
 | [`lib/host/routes.js`](../../lib/host/routes.js) | 前缀 JSON API、准入栅栏、请求体上限、错误信封 | [`createRouteHandler`](../../lib/host/routes.js#L73) |
 | [`lib/host/catalogs.js`](../../lib/host/catalogs.js) | 工作区 / Agent 预设 / 权限预设 / 模型目录的实时聚合与 60s 缓存 | [`CatalogService`](../../lib/host/catalogs.js#L125) |
 | [`lib/host/util.js`](../../lib/host/util.js) | 零依赖小工具：ID、截断、克隆、错误信息 | [`newId`](../../lib/host/util.js#L12) |
 | [`lib/client.js`](../../lib/client.js) | 浏览器半区：一级页面、画布、属性面板、日志、轮询 | [`__ModuleLoader__.load`](../../lib/client.js#L12) |
-| [`test/engine.test.mjs`](../../test/engine.test.mjs) | 引擎单测（60 个） | 测试接缝 [`executeTask`](../../lib/host/engine.js#L582) |
+| [`test/engine.test.mjs`](../../test/engine.test.mjs) | 引擎单测（61 个） | 测试接缝 [`executeTask`](../../lib/host/engine.js#L607) |
 | [`test/store-routes.test.mjs`](../../test/store-routes.test.mjs) | 存储往返、清洗、路由与准入栅栏（11 个） | 临时 `DSH_HOME` |
 | [`test/release.test.mjs`](../../test/release.test.mjs) | CHANGELOG 归档、版本比较与发布门禁单测（8 个） | [`changelog.mjs`](../../tools/lib/changelog.mjs) |
 | [`tools/e2e-full.cjs`](../../tools/e2e-full.cjs) | 隔离 `DSH_HOME` 的全链路 E2E（79 条断言，配置全部走环境变量） | [`bootstrapEnvironment`](../../tools/e2e-full.cjs#L215) |

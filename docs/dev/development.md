@@ -32,7 +32,7 @@ dsh-plugin/
 │     ├─ catalogs.js        工作区/模式/权限/模型目录聚合
 │     └─ util.js            零依赖小工具
 ├─ test/
-│  ├─ engine.test.mjs       调度语义单测（60 个）
+│  ├─ engine.test.mjs       调度语义单测（61 个）
 │  ├─ store-routes.test.mjs 存储/清洗/路由/准入单测（11 个）
 │  └─ release.test.mjs      CHANGELOG 归档与发布门禁单测（8 个）
 ├─ tools/
@@ -143,7 +143,7 @@ flowchart LR
 | 权限/模型没生效 | 运行日志里的 `warn` | 权限预设或模型选择失败，插件已降级沿用默认值 |
 | E2E 起不来 | 端口占用、Chrome 路径、`playwright-core` 路径、凭据文件 | 脚本顶部常量是**本机路径**，换机器要改；用 `--port` 换端口 |
 
-日志统一前缀 `workflow-orchestrator:`（[`lib/host/engine.js:988`](../../lib/host/engine.js#L988)、[`lib/host/store.js:374`](../../lib/host/store.js#L374)），在 DSH 日志里直接搜这个前缀即可。
+日志统一前缀 `workflow-orchestrator:`（[`lib/host/engine.js:1052`](../../lib/host/engine.js#L1052)、[`lib/host/store.js:374`](../../lib/host/store.js#L374)），在 DSH 日志里直接搜这个前缀即可。
 
 ## 6. 编码约定
 

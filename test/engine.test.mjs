@@ -1243,7 +1243,7 @@ function createControlHarness({
   }
   const store = {
     runs() {
-      return recorded.slice()
+      return [...storedRuns, ...recorded]
     },
     recordRun(run) {
       recorded.push(run)
@@ -1614,7 +1614,7 @@ test('listWaitCandidates reports live non-subagent tasks', { timeout: 5000 }, as
 // 定时调度器：自动启动工作流
 // ---------------------------------------------------------------------------
 
-function createScheduleHarness({ workflows, nowRef, executeTask }) {
+function createScheduleHarness({ workflows, nowRef, executeTask, storedRuns = [] }) {
   const recorded = []
   const ctx = {
     logger: { info() {}, warn() {} },
@@ -1628,7 +1628,7 @@ function createScheduleHarness({ workflows, nowRef, executeTask }) {
   }
   const store = {
     runs() {
-      return recorded.slice()
+      return [...storedRuns, ...recorded]
     },
     recordRun(run) {
       recorded.push(run)
@@ -1729,6 +1729,28 @@ test('the scheduler skips a due periodic trigger while the workflow is already r
   gate.resolve()
   await waitFor(() => recorded.length === 1, 5000)
   assert.equal(recorded[0].status, 'completed')
+})
+
+test('a host restart does not replay a one-shot that already fired in its catch-up window', { timeout: 8000 }, async () => {
+  const base = Date.now() + 60000
+  const nowRef = { value: base }
+  const definition = {
+    ...workflow([timerNode('t', '重启前触发', { mode: 'once', at: base + 5000 }), task('b', '任务 B')], [['t', 'b']]),
+    id: 'wf-restart-once',
+    name: '重启去重',
+  }
+  const first = createScheduleHarness({ workflows: [definition], nowRef })
+  nowRef.value = base + 5001
+  await first.engine.tickSchedules()
+  await waitFor(() => first.recorded.length === 1, 5000)
+  assert.equal(first.recorded[0].trigger.scheduledAt, base + 5000)
+  // Restart inside the 10-minute window: a new engine only has the durable run history.
+  nowRef.value = base + 5 * 60 * 1000
+  const second = createScheduleHarness({ workflows: [definition], nowRef, storedRuns: first.recorded })
+  await second.engine.tickSchedules()
+  await delay(80)
+  assert.equal(second.recorded.length, 0)
+  assert.equal(second.engine.schedulerSnapshot().workflows[0].fired, true)
 })
 
 test('the scheduler does not start a periodic workflow that fails validation', { timeout: 5000 }, async () => {

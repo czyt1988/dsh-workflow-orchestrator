@@ -212,7 +212,7 @@ npm 只允许给**已存在**的包配置 Trusted Publisher，所以第一次发
 ## 5. 发布前检查清单
 
 - [ ] `npm run release:prepare -- <version>`（或手工归档）已完成，`[Unreleased]` 为空。
-- [ ] `npm test` 全绿（引擎 60 + 存储/路由 11 + 发布工具 8）。
+- [ ] `npm test` 全绿（引擎 61 + 存储/路由 11 + 发布工具 8）。
 - [ ] `npm run check`：包清单、`exports` 目标、bundle patch、locale、必备仓库文件、截图、`screenshots.json`，以及文档相对链接、图片、Mermaid 与敏感内容全部通过。
 - [ ] `npm run release:check`：版本、CHANGELOG、`engines.dsh` 一致。
 - [ ] `npm run test:e2e`（或最近一次可信的 E2E 结果）：79/79 通过，无 `pageerror` / `console.error`。

@@ -347,7 +347,7 @@ erDiagram
 
 ### 5.1 内存态与持久态
 
-运行中引擎内部保存完整状态（含 `failureSeen`、`summary`、最新 800 行日志，见 [`lib/host/engine.js:1202`](../../lib/host/engine.js#L1202)）。运行结束后 `recordRun()` 调用 `compactRun()`（[`lib/host/store.js:284`](../../lib/host/store.js#L284)）写入文件：
+运行中引擎内部保存完整状态（含 `failureSeen`、`summary`、最新 800 行日志，见 [`lib/host/engine.js:1284`](../../lib/host/engine.js#L1284)）。运行结束后 `recordRun()` 调用 `compactRun()`（[`lib/host/store.js:284`](../../lib/host/store.js#L284)）写入文件：
 
 | 字段 | 持久化 | 说明 |
 | --- | --- | --- |
@@ -364,7 +364,7 @@ erDiagram
 
 节点 `waitingForUser` 是「等待用户回复」子状态的负载：会话仍在等待 `ask_user_question` 的回答时为 `{ since, questions }`（`questions` 是问题文本的扁平数组，最多 10 条、每条截断 500 字），回答后或节点以任何方式落定时清回 `null`。它只在运行中的 `publicRun()` 快照里出现，`compactRun()` 不持久化它——历史记录里等待状态没有意义，等待片段只留在运行日志（「等待用户回复」/「的用户已回复，继续执行」两行）。
 
-此外面板通过 `GET /api/run` 拿到的是 `publicRun()` 视图：补 `active = status === 'running'`，日志截最近 800 行（[`lib/host/engine.js:569`](../../lib/host/engine.js#L569)）。运行快照合并时只返回最近 10 条（[`lib/host/engine.js:623`](../../lib/host/engine.js#L623)）。
+此外面板通过 `GET /api/run` 拿到的是 `publicRun()` 视图：补 `active = status === 'running'`，日志截最近 800 行（[`lib/host/engine.js:594`](../../lib/host/engine.js#L594)）。运行快照合并时只返回最近 10 条（[`lib/host/engine.js:648`](../../lib/host/engine.js#L648)）。
 
 ### 5.2 运行示例
 
@@ -483,7 +483,7 @@ erDiagram
 | 定时重复间隔 | 1–10080 分钟 | [`lib/host/store.js`](../../lib/host/store.js) | clamp |
 | 请求体 | 2 MB | [`lib/host/routes.js:21`](../../lib/host/routes.js#L21) | 直接拒绝，返回 400 |
 | 内存日志 | 800 行 | [`lib/host/engine.js:75`](../../lib/host/engine.js#L75) | 追加后裁剪 |
-| 接口返回的运行 | 10 条 | [`lib/host/engine.js:623`](../../lib/host/engine.js#L623) | `slice(-10)` |
+| 接口返回的运行 | 10 条 | [`lib/host/engine.js:648`](../../lib/host/engine.js#L648) | `slice(-10)` |
 | 单个错误/输出文本 | 2000 / 4000 字 | [`lib/host/store.js:316`](../../lib/host/store.js#L316) | 截断 |
 | 请求体 | 2 MB | [`lib/host/routes.js:21`](../../lib/host/routes.js#L21) | 直接拒绝，返回 400 |
 

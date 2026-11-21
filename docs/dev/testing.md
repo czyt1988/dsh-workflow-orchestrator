@@ -6,7 +6,7 @@
 
 | 层级 | 文件 | 数量 | 需要 DSH？ | 典型耗时 |
 | --- | --- | --- | --- | --- |
-| 引擎单元测试 | [`test/engine.test.mjs`](../../test/engine.test.mjs) | 60 个用例 | 否（用假执行器 / 假动作执行器 / 注入时钟） | 秒级 |
+| 引擎单元测试 | [`test/engine.test.mjs`](../../test/engine.test.mjs) | 61 个用例 | 否（用假执行器 / 假动作执行器 / 注入时钟） | 秒级 |
 | 存储/路由集成测试 | [`test/store-routes.test.mjs`](../../test/store-routes.test.mjs) | 11 个用例 | 否（临时目录 + 假 req/res） | 秒级 |
 | 发布工具单元测试 | [`test/release.test.mjs`](../../test/release.test.mjs) | 8 个用例 | 否（纯函数） | 毫秒级 |
 | 全链路 E2E | [`tools/e2e-full.cjs`](../../tools/e2e-full.cjs) | 79 条断言（已把节点面板断言从 4 张改为 7 张，本次未复跑） | 是（隔离 `DSH_HOME` + 真实模型） | 分钟级 |
@@ -15,7 +15,7 @@
 flowchart TB
   A["E2E · 79 条断言（未覆盖新节点）· 真实 DSH / Chromium / 模型"]
   B["集成测试 · 11 个用例 · 存储往返 + 路由 + 准入 + 新节点清洗"]
-  C["单元测试 · 60 个用例 · DAG 调度、完成判定、定时/动作/等待节点"]
+  C["单元测试 · 61 个用例 · DAG 调度、完成判定、定时/动作/等待节点"]
   D["发布工具 · 8 个用例 · CHANGELOG 归档与发布门禁"]
   A --> B --> C
   C -.-> E["npm test · 每次提交"]
@@ -34,7 +34,7 @@ npm test
 node --test test/engine.test.mjs test/store-routes.test.mjs test/release.test.mjs
 ```
 
-引擎单测不启动 DSH：`WorkflowEngine` 构造函数接受 `options.executeTask` 作为测试接缝（[`lib/host/engine.js:582`](../../lib/host/engine.js#L582)），测试用 `createHarness()` 注入假执行器（[`test/engine.test.mjs:40`](../../test/engine.test.mjs#L40)）。假执行器返回 `{ sessionId, output }`，用 `deferred()` 控制完成时机，从而精确断言「谁先启动、谁在等谁」。完成判定另有 `createTurnHarness()`（[`test/engine.test.mjs:711`](../../test/engine.test.mjs#L711)），用假 `sessions` / `agents` / 可选 `subagents` 服务直接驱动 `waitForTurn()`。新增节点使用 `createControlHarness()`（`executeAction` / 假 `sessions` / 假 `agents` / `waitPollMs`）与 `createScheduleHarness()`（`now` 注入时钟 + 手动 `tickSchedules()`），真实动作执行器在测试中**从不被调用**，不会真的关机。
+引擎单测不启动 DSH：`WorkflowEngine` 构造函数接受 `options.executeTask` 作为测试接缝（[`lib/host/engine.js:607`](../../lib/host/engine.js#L607)），测试用 `createHarness()` 注入假执行器（[`test/engine.test.mjs:40`](../../test/engine.test.mjs#L40)）。假执行器返回 `{ sessionId, output }`，用 `deferred()` 控制完成时机，从而精确断言「谁先启动、谁在等谁」。完成判定另有 `createTurnHarness()`（[`test/engine.test.mjs:711`](../../test/engine.test.mjs#L711)），用假 `sessions` / `agents` / 可选 `subagents` 服务直接驱动 `waitForTurn()`。新增节点使用 `createControlHarness()`（`executeAction` / 假 `sessions` / 假 `agents` / `waitPollMs`）与 `createScheduleHarness()`（`now` 注入时钟 + 手动 `tickSchedules()`），真实动作执行器在测试中**从不被调用**，不会真的关机。
 
 | 用例 | 覆盖语义 | 位置 |
 | --- | --- | --- |
