@@ -11,7 +11,7 @@ DSH 插件包的「可加载性」由 [`package.json`](../../package.json) 的 `
 | 清单字段 | 当前值 | 作用 |
 | --- | --- | --- |
 | `name` | `dsh-workflow-orchestrator` | 包名；与 Loader 行 `name` 一致（[`package.json:2`](../../package.json#L2)） |
-| `version` | `0.2.0` | SemVer 版本（[`package.json:3`](../../package.json#L3)） |
+| `version` | `0.3.0` | SemVer 版本（[`package.json:3`](../../package.json#L3)） |
 | `type` | `module` | 全 ESM，入口即源码（[`package.json:5`](../../package.json#L5)） |
 | `main` | `lib/index.js` | 宿主半区入口（[`package.json:6`](../../package.json#L6)） |
 | `exports` | `.`、`./client`、`./locale/*.json`、`./icon`、`./package.json` | 子路径导出；`./client` 是浏览器半区入口（[`package.json:7`](../../package.json#L7)） |
@@ -101,7 +101,7 @@ DSH **设置 → 插件 → 添加插件**，输入本仓库目录的绝对路�
 
 ## 3. 版本与 SemVer
 
-当前版本 `0.2.0`，阶段为 pre-1.0。建议的升级规则：
+当前版本 `0.3.0`，阶段为 pre-1.0。建议的升级规则：
 
 | 变更 | 版本位 |
 | --- | --- |

@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-22
+
 ### Added
 
 - **定时节点**：新增 `timer` 节点类型。支持一次性（指定本地日期时间）、每天固定时间、每周固定时间（多选星期几）与每 N 分钟触发。作为起始节点（无输入连线）时，宿主调度器会按时间表自动启动整个工作流；作为流程中间节点时，运行到达后等待下一次触发时间再继续。手动执行工作流时起始定时节点立即放行，便于测试；一次性触发有 10 分钟补触发窗口（含应用重启后的窗口内补触发），超过窗口不再补；工作流正在运行时到点的周期触发会跳过并记录 WARN；睡眠唤醒后周期触发最多补触发一次。
@@ -76,6 +78,7 @@
 - 首个版本的功能与内部接口仍可能调整；升级前请阅读本文件。
 - 已知限制见 [README.md](README.md) 的「已知限制」一节（只支持并行网关、每个任务节点只执行一次、不支持循环 / 重试 / 定时触发等）。
 
-[Unreleased]: https://github.com/czyt1988/dsh-workflow-orchestrator/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/czyt1988/dsh-workflow-orchestrator/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/czyt1988/dsh-workflow-orchestrator/releases/tag/v0.3.0
 [0.2.0]: https://github.com/czyt1988/dsh-workflow-orchestrator/releases/tag/v0.2.0
 [0.1.0]: https://github.com/czyt1988/dsh-workflow-orchestrator/releases/tag/v0.1.0
