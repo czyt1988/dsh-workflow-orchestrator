@@ -361,6 +361,32 @@ Remove-Item (Join-Path $dshHome 'workflow-orchestrator\workflows.json') -Force
 ### 23. 定时/动作/等待节点会创建任务会话吗？
 
 不会。它们都是控制节点：定时节点只按时间表触发或延迟，动作节点执行一次系统/网络动作，等待节点轮询其它任务。它们不产生会话、不进入下游提示词上下文，也不占用 8 个任务并发名额；属性区不会显示会话 ID。
+### 24. 安装时提示「这个包没有声明组合包，无法作为插件安装」？
+
+完整报错形如：
+
+```text
+这个包没有声明组合包，无法作为插件安装：dsh-workflow-orchestrator declares no dsh.bundle
+```
+
+这通常是**安装源滞后**，不是插件包本身有问题。DSH 安装前会执行 `pnpm view <包名> name version description dsh`，要求包清单里有 `dsh.bundle`（它指向 `cordis.patch.yml`）。镜像站如果还没同步到最新版本，就会把旧版本当成最新版返回。
+
+本仓库首次发布时，npm 会额外生成一个 `0.0.0-stage` 占位版本（描述为 *Temporary package placeholder for staged publishing*，包里只有 `package.json` 和 README，没有 `dsh.bundle`）。镜像如果在正式版本落地前的一瞬间抓取了元数据，就会把这个占位版本记成 `latest`，于是出现上面的报错。
+
+处理办法（任选其一）：
+
+1. 在「添加插件」对话框里把**安装源**从「中国大陆镜像源」改成 **npm 官方源**，再点「安装」；
+2. 等镜像同步后重试（一般几分钟）；
+3. 改用本地目录安装（[快速开始 · 方式三](getting-started.md)），或用 `dsh plugin add` 从官方源安装。
+
+判断某个源上的版本能不能装：
+
+```powershell
+npm config get registry
+npm view dsh-workflow-orchestrator version dsh --json
+```
+
+输出里带 `dsh.bundle.patch` 才能作为插件安装；只有 `version` 而没有 `dsh` 字段，说明这个源上仍是占位版本。
 
 ## 已知限制
 

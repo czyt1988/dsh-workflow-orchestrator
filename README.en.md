@@ -143,6 +143,8 @@ dsh plugin --profile desktop add dsh-workflow-orchestrator
 
 Replace `desktop` with your profile name (the desktop app uses `desktop` by default). The plugin is written into the current profile and enabled automatically; refresh the page and a first-level **Workflow Orchestrator** entry appears in the sidebar. Published tarballs carry npm provenance, so the source repository and workflow are verifiable on the npm package page.
 
+> If installation fails with `declares no dsh.bundle`, the npm mirror you selected has not synced the latest release yet: DSH runs `pnpm view` and reads `dsh.bundle` from the manifest, so a lagging mirror can still answer with an old placeholder version. Set the plugin manager's **install source** to **npm official** and retry, or wait for the mirror to catch up (see [FAQ](docs/user/data-and-faq.md), in Chinese).
+
 ### Option 2: plugin discovery page
 
 DSH ships no plugin index, so add one index source once (per profile):

@@ -141,6 +141,8 @@ dsh plugin --profile desktop add dsh-workflow-orchestrator
 
 把 `desktop` 换成你的 profile 名（桌面端默认 `desktop`）。插件会写入当前 profile 并自动启用，刷新页面后左侧栏出现 **「工作流编排」**。发布包带 npm provenance，可在 npm 包页面核对来源仓库与发布工作流。
 
+> 若提示「这个包没有声明组合包，无法作为插件安装：… declares no dsh.bundle」，通常是所用 npm 镜像源还没同步到最新版本：DSH 安装前会用 `pnpm view` 读包清单里的 `dsh.bundle`，镜像滞后时会拿到旧的占位版本。把插件管理器的**安装源**切到 **npm 官方源** 重试，或等镜像同步后再装，详见 [数据与常见问题 · FAQ 第 24 条](docs/user/data-and-faq.md)。
+
 ### 方式二：插件发现页安装
 
 DSH 不内置插件索引，需要先添加一次索引源（属于当前 profile）：

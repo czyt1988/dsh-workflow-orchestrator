@@ -198,7 +198,17 @@ npm 只允许给**已存在**的包配置 Trusted Publisher，所以第一次发
 两个容易踩的坑：
 
 - **npm 只从 `.npmrc` 读凭据**：单独设置 `NODE_AUTH_TOKEN` 环境变量是无效的（`npm whoami` 仍返回 `ENEEDAUTH`）。工作流在检测到 `NPM_TOKEN` 时把它写进 `~/.npmrc`，并先跑一次 `npm whoami` 预检；令牌无效会直接给出明确错误，而不是让 `npm publish` 模糊失败。
-- **首次发布会多出一个 `0.0.0-stage` 版本**：这是 npm 给带 stage 权限的 granular token 自动创建的占位版本（描述为 *Temporary package placeholder for staged publishing*），不是发布失败，也不会成为 `latest`，通常无需处理。
+- **首次发布会多出一个 `0.0.0-stage` 版本**：这是 npm 给带 stage 权限的 granular token 自动创建的占位版本（描述为 *Temporary package placeholder for staged publishing*），不是发布失败，在 npm 官方源上也不会成为 `latest`，通常无需处理。
+- **但镜像站可能把它记成 `latest`**：占位版本与正式版本相隔几十秒，镜像若在这段窗口内抓取元数据，就会一直返回只有 `package.json` + README 的占位版本；此时 DSH 安装会报「这个包没有声明组合包……`declares no dsh.bundle`」（用户在客户端把安装源切到官方源即可）。确认与修复：
+
+  ```powershell
+  # 看镜像当前认为的 latest 与 dsh 字段；latest 应为正式版本且有 dsh.bundle
+  npm view dsh-workflow-orchestrator version dsh --registry https://registry.npmmirror.com --json
+
+  # 主动让镜像重新同步（返回 {"ok":true,...} 表示已排队，通常一两分钟内生效）
+  Invoke-WebRequest -Method Put -ContentType 'application/json' -Body '{}' `
+    -Uri 'https://registry.npmmirror.com/-/package/dsh-workflow-orchestrator/syncs'
+  ```
 
 > 首次发布也可以在本地用 `npm publish` 完成，但产物就会与 CI 走两条路径，且没有 provenance；推荐仍用上面的 CI 路径。
 
