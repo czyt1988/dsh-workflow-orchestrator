@@ -87,9 +87,9 @@ flowchart TB
 | --- | --- | --- |
 | `webServer` | [`lib/index.js:59`](../../lib/index.js#L59) | 以前缀方式挂载 `/workflow-orchestrator`，返回 `dispose` |
 | `connection` | [`lib/host/routes.js:77`](../../lib/host/routes.js#L77) | `requestRejection(req)` 准入栅栏，复用宿主的浏览器信任判定 |
-| `sessions` | [`lib/host/engine.js:1993`](../../lib/host/engine.js#L1993) | 按会话 ID 取实时会话，读取事件与消息 |
-| `agents` | [`lib/host/engine.js:2264`](../../lib/host/engine.js#L2264) | 读取 Agent 运行状态，判断「空闲」、轮次边界与超时 |
-| `sessionController` | [`lib/host/engine.js:1986`](../../lib/host/engine.js#L1986)、[`:1932`](../../lib/host/engine.js#L2014)、[`:1945`](../../lib/host/engine.js#L2027)、[`:2101`](../../lib/host/engine.js#L2183) | 创建真实任务会话、选择模型、投递提示词、取消会话 |
+| `sessions` | [`lib/host/engine.js:2342`](../../lib/host/engine.js#L2342) | 按会话 ID 取实时会话，读取事件与消息 |
+| `agents` | [`lib/host/engine.js:2613`](../../lib/host/engine.js#L2613) | 读取 Agent 运行状态，判断「空闲」、轮次边界与超时 |
+| `sessionController` | [`lib/host/engine.js:2335`](../../lib/host/engine.js#L2335)、[`:2363`](../../lib/host/engine.js#L2363)、[`:2376`](../../lib/host/engine.js#L2376)、[`:2532`](../../lib/host/engine.js#L2532) | 创建真实任务会话、选择模型、投递提示词、取消会话 |
 
 ### 2.2.1 定时调度器
 
@@ -103,9 +103,9 @@ flowchart TB
 
 | 服务 | 读取点 | 缺失时的行为 |
 | --- | --- | --- |
-| `permissionPresets` | [`lib/host/engine.js:1996`](../../lib/host/engine.js#L1996)、[`lib/host/catalogs.js:148`](../../lib/host/catalogs.js#L148) | 应用权限预设失败只记 `warn`，沿用会话默认权限 |
+| `permissionPresets` | [`lib/host/engine.js:2345`](../../lib/host/engine.js#L2345)、[`lib/host/catalogs.js:148`](../../lib/host/catalogs.js#L148) | 应用权限预设失败只记 `warn`，沿用会话默认权限 |
 | `subagents` | [`lib/host/engine.js`](../../lib/host/engine.js) 的 `checkChildWork()` | 不等待后台子代理，完成判定退化为「第一个结束轮次」；`waitForChildren` / `waitForTreeWork` 抛错时同样降级并记 `WARN`。两种 API 的返回语义相反：旧 API 返回「仍有工作」，新 API 返回「已汇合、需重新检查」 |
-| `sessionProjections` | [`lib/host/engine.js:497`](../../lib/host/engine.js#L497) | 感知不到限时提问超时后「仍可回答」的提问，等待用户回复的判定只剩前台等待信号，节点可能在用户回答前提前完成；记 `WARN`（每个节点一次） |
+| `sessionProjections` | [`lib/host/engine.js:499`](../../lib/host/engine.js#L499) | 感知不到限时提问超时后「仍可回答」的提问，等待用户回复的判定只剩前台等待信号，节点可能在用户回答前提前完成；记 `WARN`（每个节点一次） |
 | `sessionTitle` | [`lib/host/engine.js`](../../lib/host/engine.js) 的 `listWaitCandidates()` | 插件自己运行中的任务仍显示「工作流 / 节点」名，其它存活任务只能用会话 ID 作标题，列表可读性下降 |
 | `dshHomePath` | [`lib/index.js:27`](../../lib/index.js#L27)、[`lib/host/store.js:42`](../../lib/host/store.js#L42) | 回退到环境变量 `DSH_HOME`，再回退到 `~/.dsh` |
 | `workspaceRegistry` | [`lib/host/catalogs.js:146`](../../lib/host/catalogs.js#L146) | 工作区列表为空，`problems` 里记录 `workspaces` 失败 |
@@ -182,9 +182,9 @@ sequenceDiagram
 
 ### 5.2 执行
 
-- 点击「执行」：先 `flushSave()`，再 `POST /api/run`，请求体同时带 `workflowId` 与当前画布快照 `workflow`（[`lib/client.js:1501`](../../lib/client.js#L1501)）。
-- 点击「从此节点开始执行」：走同一个 `startRun()`，请求体额外带 `startNodeId`（[`lib/client.js:1501`](../../lib/client.js#L1501)）；宿主只调度该节点及其下游可达子图，范围外节点在调度开始前写为 `not-run`（[`lib/host/engine.js:1257`](../../lib/host/engine.js#L1257)、[`:705`](../../lib/host/engine.js#L1508)）。
-- 宿主侧 `engine.start()` 会**用提交的覆盖版本先保存一次**，然后校验、建运行记录、异步调度（[`lib/host/engine.js:1257`](../../lib/host/engine.js#L1257)）。
+- 点击「执行」：先 `flushSave()`，再 `POST /api/run`，请求体同时带 `workflowId` 与当前画布 `workflow`（[`lib/client.js:1501`](../../lib/client.js#L1501)）。运行期间的后续修改不必重新提交：引擎在每个调度边界回读存储里的定义（见 [执行引擎 §1.1](execution-engine.md#11-运行中修改活图live-graph)）。
+- 点击「从此节点开始执行」：走同一个 `startRun()`，请求体额外带 `startNodeId`（[`lib/client.js:1501`](../../lib/client.js#L1501)）；宿主只调度该节点及其下游可达子图，范围外节点在调度开始前写为 `not-run`（[`lib/host/engine.js:1375`](../../lib/host/engine.js#L1375)、[`:1666`](../../lib/host/engine.js#L1666)）。
+- 宿主侧 `engine.start()` 会**用提交的覆盖版本先保存一次**，然后校验、建运行记录、异步调度（[`lib/host/engine.js:1375`](../../lib/host/engine.js#L1375)）。
 - 终止：`POST /api/stop`，带 `runId` 与 `cancelTasks`（[`lib/client.js:1525`](../../lib/client.js#L1525)）。
 
 ### 5.3 轮询
@@ -195,19 +195,19 @@ sequenceDiagram
 
 ### 5.4 持久化
 
-- 所有工作流定义与最近运行记录都在一个文件里：`$DSH_HOME/workflow-orchestrator/workflows.json`（[`lib/host/store.js:39`](../../lib/host/store.js#L39)）。
-- 写入串行化并原子提交：临时文件 + `rename`（[`lib/host/store.js:444`](../../lib/host/store.js#L444)）。
+- 所有工作流定义与最近运行记录都在一个文件里：`$DSH_HOME/workflow-orchestrator/workflows.json`（[`lib/host/store.js:41`](../../lib/host/store.js#L41)）。
+- 写入串行化并原子提交：临时文件 + `rename`（[`lib/host/store.js:475`](../../lib/host/store.js#L475)）。
 - 同一个 `DSH_HOME` 被两个 DSH 实例同时使用时没有跨进程锁，属于**最后写入者胜**；这是当前实现的明确边界。
 
 ## 6. 生命周期与错误边界
 
 | 场景 | 行为 |
 | --- | --- |
-| 插件卸载 | 注销 Web 路由（[`lib/index.js:58`](../../lib/index.js#L58)）；`engine.dispose()` 停止定时调度、对未停止的运行发起 `cancel-tasks` 停止（[`lib/host/engine.js:1387`](../../lib/host/engine.js#L1387)） |
+| 插件卸载 | 注销 Web 路由（[`lib/index.js:58`](../../lib/index.js#L58)）；`engine.dispose()` 停止定时调度、对未停止的运行发起 `cancel-tasks` 停止（[`lib/host/engine.js:1492`](../../lib/host/engine.js#L1492)） |
 | 页面关闭 / 组件卸载 | 清除保存定时器、轮询定时器；槽位声明由插件效应统一释放（[`lib/client.js:3067`](../../lib/client.js#L3067)） |
 | 路由内业务异常 | 统一 `400 workflow-error`（[`lib/host/routes.js:201`](../../lib/host/routes.js#L201)） |
 | 选项目录失败 | `buildState` 用空目录 + `problems` 兜底（[`lib/host/routes.js:54`](../../lib/host/routes.js#L54)）；面板在无工作区时显示横幅提示（[`lib/client.js:2985`](../../lib/client.js#L2985)） |
-| 状态文件损坏 | 改名 `.corrupt-<时间戳>` 后以空状态启动（[`lib/host/store.js:370`](../../lib/host/store.js#L370)） |
+| 状态文件损坏 | 改名 `.corrupt-<时间戳>` 后以空状态启动（[`lib/host/store.js:377`](../../lib/host/store.js#L377)） |
 
 ## 7. 待按 DSH 版本确认的契约
 
@@ -215,8 +215,8 @@ sequenceDiagram
 
 - `ctx.webServer.register({ kind: 'prefix', ... })` 的返回是否始终可调用。
 - `connection.requestRejection(req)` 的签名与返回值语义。
-- `sessionController.create / selectModel / prompt / cancel` 的参数形状；其中 `prompt` 使用 `mode: 'queue'` 与 `AbortSignal`（[`lib/host/engine.js:2027`](../../lib/host/engine.js#L2027)）。
-- 会话事件 `turn/start`、`turn/end` 与 `turn/end.data.reason` 的结构（[`lib/host/engine.js:560`](../../lib/host/engine.js#L560)）；后台子代理依赖的可选服务 `subagents.waitForChildren(agent)`（旧版）/ `subagents.waitForTreeWork(agent)`（现版本）/ `drainDescendants(agents)` 也属于宿主契约，缺失时自动降级。
+- `sessionController.create / selectModel / prompt / cancel` 的参数形状；其中 `prompt` 使用 `mode: 'queue'` 与 `AbortSignal`（[`lib/host/engine.js:2376`](../../lib/host/engine.js#L2376)）。
+- 会话事件 `turn/start`、`turn/end` 与 `turn/end.data.reason` 的结构（[`lib/host/engine.js:562`](../../lib/host/engine.js#L562)）；后台子代理依赖的可选服务 `subagents.waitForChildren(agent)`（旧版）/ `subagents.waitForTreeWork(agent)`（现版本）/ `drainDescendants(agents)` 也属于宿主契约，缺失时自动降级。
 - Web 壳层 slot 名称 `main` 与 `sidebar.panellist`（[`lib/client.js:3053`](../../lib/client.js#L3053)）。
 
 遇到升级后行为异常，先核对以上几处，再检查宿主日志里是否有 `workflow-orchestrator:` 前缀的输出。

@@ -8,28 +8,44 @@
 
 本文只讲**调度与执行语义**；接口和数据格式分别见 [HTTP API](http-api.md) 与 [数据模型](data-model.md)。
 
-## 1. 输入、快照与运行记录
+## 1. 输入、定义与运行记录
 
-`WorkflowEngine.start(workflowId, workflowOverride, options = {})` 的流程（[`lib/host/engine.js:1257`](../../lib/host/engine.js#L1257)）：
+`WorkflowEngine.start(workflowId, workflowOverride, options = {})` 的流程（[`lib/host/engine.js:1375`](../../lib/host/engine.js#L1375)）：
 
 1. 等待存储就绪（`store.ready()`）。
-2. 如果请求带了 `workflow` 覆盖版本，先 `store.save(workflowOverride)` 落盘并取得**深拷贝**；否则 `store.get(workflowId)`。因此**运行使用的是启动时快照**，运行中继续编辑画布不会影响本次运行。
-3. 同一工作流已有活动运行时直接报错，避免重复执行（[`lib/host/engine.js:1261`](../../lib/host/engine.js#L1261)）。
-4. 归一化 `options.startNodeId`：只有**非空字符串**才视为「从节点开始执行」，其它值（缺失 / `null` / 空串 / 非字符串）都按全量执行（[`lib/host/engine.js:1263`](../../lib/host/engine.js#L1263)）。`options.trigger` 只由调度器内部传入（`{ kind: 'timer', nodeId, nodeTitle, mode, scheduledAt }`），HTTP 路由不会透传。
-5. `validateWorkflow(workflow, { startNodeId })` 校验失败则抛错，路由层转成 `400 workflow-error`（[`lib/host/engine.js:1266`](../../lib/host/engine.js#L1266)）。
-6. 创建运行记录：`startNodeId`（全量为 `null`）、`trigger`（手动执行时 `null`）、`status: 'running'`、`stopRequested: false`、`terminated: false`、所有节点初始化为 `pending`、空日志（[`lib/host/engine.js:1284`](../../lib/host/engine.js#L1284)）。
-7. 写启动日志：全量执行是 `工作流「<名称>」开始执行（N 个节点）`；范围执行是 `从节点「<起始节点标题>」开始执行：跳过 N 个不在下游范围内的节点`；自动触发再追加一条 `本次运行由定时节点「X」自动触发（计划时间 …）`（[`lib/host/engine.js:1325`](../../lib/host/engine.js#L1325)）。
-8. 预取一次选项目录（失败不阻塞），然后异步启动调度器 `schedule(run, workflow, catalogs, startNodeId)`；`start()` 立即返回运行快照（[`lib/host/engine.js:1346`](../../lib/host/engine.js#L1346)）。
+2. 如果请求带了 `workflow` 覆盖版本，先 `store.save(workflowOverride)` 落盘并取得**深拷贝**；否则 `store.get(workflowId)`。这份定义是本次运行的**起始定义**；运行期间引擎会在调度边界回读存储，采用画布上的最新修改（见 §1.1）。
+3. 同一工作流已有活动运行时直接报错，避免重复执行（[`lib/host/engine.js:1380`](../../lib/host/engine.js#L1380)）。
+4. 归一化 `options.startNodeId`：只有**非空字符串**才视为「从节点开始执行」，其它值（缺失 / `null` / 空串 / 非字符串）都按全量执行（[`lib/host/engine.js:1381`](../../lib/host/engine.js#L1381)）。`options.trigger` 只由调度器内部传入（`{ kind: 'timer', nodeId, nodeTitle, mode, scheduledAt }`），HTTP 路由不会透传。
+5. `validateWorkflow(workflow, { startNodeId })` 校验失败则抛错，路由层转成 `400 workflow-error`（[`lib/host/engine.js:1384`](../../lib/host/engine.js#L1384)）。
+6. 创建运行记录：`startNodeId`（全量为 `null`）、`trigger`（手动执行时 `null`）、`status: 'running'`、`stopRequested: false`、`terminated: false`、所有节点初始化为 `pending`、空日志（[`lib/host/engine.js:1402`](../../lib/host/engine.js#L1402)）。
+7. 写启动日志：全量执行是 `工作流「<名称>」开始执行（N 个节点）`；范围执行是 `从节点「<起始节点标题>」开始执行：跳过 N 个不在下游范围内的节点`；自动触发再追加一条 `本次运行由定时节点「X」自动触发（计划时间 …）`（[`lib/host/engine.js:1430`](../../lib/host/engine.js#L1430)）。
+8. 预取一次选项目录（失败不阻塞），然后异步启动调度器 `schedule(run, workflow, catalogs, startNodeId)`；`start()` 立即返回运行快照（[`lib/host/engine.js:1451`](../../lib/host/engine.js#L1451)）。
 
-调度器抛出的非预期异常由 `abortRun()` 兜底：运行直接标记 `failed`、写一条错误日志、尝试持久化并从活动表移除（[`lib/host/engine.js:1413`](../../lib/host/engine.js#L1413)）。
+调度器抛出的非预期异常由 `abortRun()` 兜底：运行直接标记 `failed`、写一条错误日志、尝试持久化并从活动表移除（[`lib/host/engine.js:1518`](../../lib/host/engine.js#L1518)）。
+
+### 1.1 运行中修改：活图（live graph）
+
+运行**不锁定**启动时的快照：调度器在调度边界回读存储里的定义，画布上的修改会在运行中生效，因此可以在任务跑着的时候继续调整工作流。
+
+- **回读时机**：每轮 `pump()` 之前（即任何一个节点落定之后——任务、判断、并行网关、定时、动作、等待节点都算）；以及运行只是在等待时，每 1 秒一次的修订号探针（`liveGraphRefreshMs`，默认 `1000` ms，测试可设 `0` 关闭探针）。
+- **修订号**：`WorkflowStore.revision` 在 `save()` / `remove()` 时自增，仅存在于内存、不落盘。探针只比较一个整数：画布没动时零开销，也不会克隆整份定义。
+- **采用规则**：新定义先过一次 `validateWorkflow(..., { allowPastOnce: true })`（运行中的工作流不会重复触发入口定时器，过期的一次性定时在运行内立即触发，所以「一次性时间已过去」不作为拒绝理由）。校验不通过的修改**不生效**，运行继续使用上一版图，只记一条警告；修正后下一次保存会自动生效。
+- **生效范围**：只有**尚未启动**的节点使用新设置（提示词、工作区、模型、权限、上下文模式、节点类型、连线）。已经启动或已经完成的节点保持启动时的定义，不会被重启、重跑或重新发提示词；修改这些节点会额外记一条「已开始的节点保持原有设置」警告。
+- **新增节点**：进入调度图，范围内前序全部落定后照常启动；没有任何前序的新节点会立即启动。范围执行中，新节点必须落在起始节点的下游可达集合里才会执行。
+- **删除节点**：尚未启动的节点直接记为 `not-run`（错误「运行中已从工作流删除，未执行」），不再阻塞运行；正在运行的任务继续跑完；正在等待的定时/等待节点会被取消（否则会把运行挂到未来时间）；动作节点会被中止。
+- **删除起始节点**（范围执行）：本次运行冻结在原执行范围，其余修改照常采用，并记一条警告。
+- **删除整个工作流**：运行继续使用最后读取到的定义，并记一条警告。
+- **日志**：每次采用写一条汇总行（新增 / 修改 / 删除的节点数量与标题、连线是否有调整），例如 `运行中检测到工作流修改，已按最新定义继续：新增 1 个节点（「任务 C」）…`。
+
+「只对未开始的节点生效」是刻意设计：一次运行不会因为编辑而重复消耗 token；要重跑已完成的节点，请在下一次运行里做。
 
 ## 2. 图构建、执行范围与校验
 
-`buildGraph()` 把定义转成三张表：`nodeById`、`predecessors`、`successors`；端点不存在的边被忽略（[`lib/host/engine.js:120`](../../lib/host/engine.js#L120)）。
+`buildGraph()` 把定义转成三张表：`nodeById`、`predecessors`、`successors`；端点不存在的边被忽略（[`lib/host/engine.js:122`](../../lib/host/engine.js#L122)）。
 
-`executionScope(workflow, startNodeId)` 从起始节点沿 `successors` 做一次可达遍历，返回「起始节点 + 全部下游可达节点」的集合；起始节点不存在时返回空集合（[`lib/host/engine.js:138`](../../lib/host/engine.js#L138)）。范围执行时，调度与校验都只使用这个集合；全量执行不使用范围（等价于所有节点都在范围内）。
+`executionScope(workflow, startNodeId)` 从起始节点沿 `successors` 做一次可达遍历，返回「起始节点 + 全部下游可达节点」的集合；起始节点不存在时返回空集合（[`lib/host/engine.js:140`](../../lib/host/engine.js#L140)）。范围执行时，调度与校验都只使用这个集合；全量执行不使用范围（等价于所有节点都在范围内）。
 
-`validateWorkflow(workflow, options)` 在启动前给出人类可读的问题列表（[`lib/host/engine.js:227`](../../lib/host/engine.js#L227)）：
+`validateWorkflow(workflow, options)` 在启动前给出人类可读的问题列表（[`lib/host/engine.js:229`](../../lib/host/engine.js#L229)）：
 
 | 检查 | 范围执行时的差异 |
 | --- | --- |
@@ -51,25 +67,27 @@
 
 ## 3. 调度核心
 
-调度器 `schedule(run, workflow, catalogs, startNodeId)`（[`lib/host/engine.js:1492`](../../lib/host/engine.js#L1492)）用一套很轻量的状态机驱动整个 DAG：
+调度器 `schedule(run, workflow, catalogs, startNodeId)`（[`lib/host/engine.js:1608`](../../lib/host/engine.js#L1608)）用一套很轻量的状态机驱动整个 DAG：
 
-- `scope` / `inScope`：范围执行时的可达集合；全量执行时为 `undefined`（所有节点都在范围内）（[`lib/host/engine.js:1494`](../../lib/host/engine.js#L1494)）。
-- `remaining`：每个节点还剩多少个**范围内**前序没有落定；范围外前序不计数（[`lib/host/engine.js:1497`](../../lib/host/engine.js#L1497)）。
-- `not-run` 预置：范围外节点在调度开始前一次性写入 `status: 'not-run'`，直接计入 `settled`，**不经过 `finishNode()`**，因此不会错误递减范围内节点的 `remaining`（[`lib/host/engine.js:1508`](../../lib/host/engine.js#L1508)）。
-- `started`：已经处理过的节点（启动、跳过、取消、未执行都算），保证每节点只处理一次。
+- `current` / `graph` / `scope` / `inScope`：当前**生效**的定义、邻接表与执行范围。全量执行时 `scope` 为 `undefined`（所有节点都在范围内）。三者都可能被活图刷新整体替换（§1.1）。
+- `statuses`：已落定节点 → 最终状态。节点是否就绪不再依赖入度计数器，而是直接检查它的每个**范围内**前序是否已经在 `statuses` 里；前序被删掉后就不再出现在图中，因此活图修改不会留下过期的计数。
+- `started`：已经开始处理的节点（任务已发出、控制节点已在等待、网关/终止节点已判定），保证每个节点只处理一次。
 - `running`：正在执行**任务会话**的节点集合，用于并发上限；定时/动作/等待节点不占并发名额。
-- `settled`：已经落定的节点数；`settled === 节点总数 && running.size === 0` 时运行结束（[`lib/host/engine.js:1525`](../../lib/host/engine.js#L1525)）。
-- `controlCancels`：按运行与节点登记的异步控制节点取消回调（定时等待、等待任务轮询、动作执行）；停止或提前终止时由引擎统一触发，保证异步节点不会把运行挂到未来时间。
+- `checkDone()`：范围内节点**全部**在 `statuses` 中且 `running.size === 0` 时运行结束。每次采用新定义后范围会重算，被删掉的节点自然不再计入。
+- `controlCancels`：按运行与节点登记的异步控制节点取消回调（定时等待、等待任务轮询、动作执行）；停止、提前终止或节点被删除时由引擎统一触发，保证异步节点不会把运行挂到未来时间。
 
-`finishNode()` 是范围内节点唯一的「落定」入口：写节点状态、`settled++`、给**范围内**后继的 `remaining` 减一（下限 0）（[`lib/host/engine.js:1529`](../../lib/host/engine.js#L1529)）。异步控制节点用受保护的 `settle` 包装同一个入口，保证「完成」与「被取消」只有一个生效。
+`refreshWorkflow()` 在每轮 `pump()` 开头回读存储（修订号未变时一次整数比较），变化且校验通过时由 `adoptWorkflow()` 覆盖 `current` / `graph` / `scope`：懒创建新节点的运行记录、把被删掉的未启动节点记为 `not-run`、取消被删控制节点的等待、把重新进入范围的节点恢复为 `pending`，最后用 `workflowDiff()` 的差异写一条日志。
 
-`pump()` 是可重入保护的启动循环：反复扫描节点，直到某一轮没有任何进展（[`lib/host/engine.js:1778`](../../lib/host/engine.js#L1778)）。它只把**范围内**前序当作前序；单个任务完成/失败后再次调用 `pump()`，把新就绪的节点放出去。
+`finishNode()` 是范围内节点唯一的「落定」入口：写节点状态与 `statuses`、补 `endedAt`。异步控制节点用受保护的 `settle` 包装同一个入口，保证「完成」与「被取消」只有一个生效。
+
+`pump()` 是可重入保护的启动循环：先刷新活图，再反复扫描节点，直到某一轮没有任何进展。它只把**范围内**前序当作前序；单个任务完成/失败后再次调用 `pump()`，把新就绪的节点放出去。运行只是在等待（一个长任务或一个定时瞬间）时，1 秒一次的修订号探针也会触发 `pump()`，让新加的节点不必等到某个节点落定才开始。
 
 ```mermaid
 flowchart TD
-  A["pump 按文档顺序遍历节点"] --> B{"已处理过？"}
+  A0["pump 开头：回读存储，采用最新定义"] --> A["pump 按文档顺序遍历节点"]
+  A --> B{"已处理过？"}
   B -->|是| Z["跳过该节点"]
-  B -->|否| C{"remaining 计数为 0？"}
+  B -->|否| C{"范围内前序全部落定？"}
   C -->|否| Z
   C -->|是| D{"类型是并行网关？"}
   D -->|是| E{"范围内前序全部 completed？"}
@@ -94,7 +112,7 @@ flowchart TD
   N2 -->|是| N3["解析 WOF_DECISION，STOP 时 terminateRun"]
   N2 -->|否| O["节点 completed"]
   N3 --> O
-  F --> O2["finishNode：范围内后继 remaining 减一"]
+  F --> O2["finishNode：记录落定状态"]
   G --> O2
   I --> O2
   I2 --> O2
@@ -104,14 +122,16 @@ flowchart TD
   O --> P["任务结束后 pump 与 checkDone"]
   O2 --> Q{"还有可推进节点？"}
   Q -->|是| A
-  Q -->|否| R["等待在途任务"]
+  Q -->|否| R["等待在途任务或下一次活图刷新"]
 ```
 
 关键判定：
 
 | 情况 | 结果 |
 | --- | --- |
-| 范围执行且节点在范围外 | 启动时即为 `not-run`，不创建会话、不写节点日志、不计入失败 |
+| 范围执行且节点在范围外 | 调度前写入 `not-run`，不创建会话、不写节点日志、不计入失败；重新进入范围时恢复 `pending` |
+| 运行中被删除且尚未启动的节点 | `not-run`，错误「运行中已从工作流删除，未执行」，不再阻塞运行 |
+| 运行中被删除且正在等待的定时/等待节点 | 取消等待并按 `not-run` 落定；动作节点中止；正在运行的任务继续跑完 |
 | 范围执行且范围内节点没有范围内前序 | 视为可立即启动（不会被范围外前序阻塞） |
 | 网关所有范围内前序 `completed` | 网关 `completed`，日志「已汇合（N 条分支）」 |
 | 网关任一范围内前序未成功 | 网关 `skipped`，错误「前序分支未成功，网关未激活」 |
@@ -136,6 +156,8 @@ stateDiagram-v2
   state "not-run 未执行" as NotRun
   [*] --> pending
   [*] --> NotRun: 范围执行时的范围外节点
+  NotRun --> pending: 重新进入执行范围（活图修改）
+  pending --> NotRun: 运行中被删除
   pending --> running: 任务/判断节点就绪且并发未满
   pending --> completed: 并行网关前序全部 completed / 终止节点触发提前结束
   pending --> skipped: 前序未全部 completed、网关前序失败或运行已提前终止
@@ -156,7 +178,7 @@ stateDiagram-v2
 
 持久化与界面上的节点状态就是这 7 种（`pending` / `running` / `completed` / `failed` / `cancelled` / `skipped` / `not-run`）。运行整体状态另有 4 种：`running`、`completed`、`failed`、`cancelled`；提前结束的运行仍是 `completed` 或 `failed`，用运行记录的 `terminated` 标记区分（见第 8 节）。
 
-定时节点在等待触发期间、等待任务完成节点在轮询期间、动作节点在执行动作期间都保持 `running`，并分别携带 `timerState`（`waitUntil` / `firedAt`）、`waitState`（目标列表与进度）、`actionState` 负载供面板显示；停止/提前终止会把它们落定为 `cancelled` / `skipped`。
+定时节点在等待触发期间、等待任务完成节点在轮询期间、动作节点在执行动作期间都保持 `running`，并分别携带 `timerState`（`waitUntil` / `firedAt`）、`waitState`（目标列表与进度）、`actionState` 负载供面板显示；停止/提前终止会把它们落定为 `cancelled` / `skipped`，运行中被删除则落定为 `not-run`（等待被取消、动作被中止）。
 
 「等待用户回复」不是第 8 种节点状态，而是 `running` 的一个**子状态**：会话仍在等待 `ask_user_question` 的回答时，节点状态保持 `running`，同时携带 `waitingForUser` 负载（见 5.6）；面板据此把「运行中」显示为「等待用户回复」。调度语义完全不变——等待中的节点仍占用并发名额，`cancel-tasks` 也照常取消它的会话。
 
@@ -164,7 +186,7 @@ stateDiagram-v2
 
 ## 5. 单任务执行
 
-任务节点的真实执行在 `executeTaskReal()`（[`lib/host/engine.js:1973`](../../lib/host/engine.js#L1973)）。测试通过构造函数选项 `executeTask` 替换它（[`lib/host/engine.js:607`](../../lib/host/engine.js#L607)），单元测试因此不需要启动 DSH。
+任务节点的真实执行在 `executeTaskReal()`（[`lib/host/engine.js:2322`](../../lib/host/engine.js#L2322)）。测试通过构造函数选项 `executeTask` 替换它（[`lib/host/engine.js:705`](../../lib/host/engine.js#L705)），单元测试因此不需要启动 DSH。
 
 ```mermaid
 sequenceDiagram
@@ -194,7 +216,7 @@ sequenceDiagram
 
 ### 5.1 创建会话
 
-参数来源按优先级合并（[`lib/host/engine.js:1973`](../../lib/host/engine.js#L1973)）：
+参数来源按优先级合并（[`lib/host/engine.js:2322`](../../lib/host/engine.js#L2322)）：
 
 | 参数 | 优先级 |
 | --- | --- |
@@ -203,40 +225,40 @@ sequenceDiagram
 | `permissionPreset` | 节点 `task.permissionPreset` → 选项目录 `defaults.permissionPreset` |
 | 模型 | 节点 `task.model` → 选项目录 `defaults.model` |
 
-创建成功后必须拿到字符串 `sessionId`，否则抛「创建任务会话失败：未返回会话 ID」；随后把会话 ID 写进节点状态并记日志（[`lib/host/engine.js:1986`](../../lib/host/engine.js#L1986)）。
+创建成功后必须拿到字符串 `sessionId`，否则抛「创建任务会话失败：未返回会话 ID」；随后把会话 ID 写进节点状态并记日志（[`lib/host/engine.js:2335`](../../lib/host/engine.js#L2335)）。
 
 ### 5.2 应用权限与模型
 
-- 权限：调用 `permissionPresets.resolve(preset)` 与 `permissionPresets.set(session, preset)`；失败只记 `warn`，沿用会话默认权限（[`lib/host/engine.js:1996`](../../lib/host/engine.js#L1996)）。
-- 模型：`sessionController.selectModel({ sessionId, provider, model, reasoningEffort? })`；失败同样只降级（[`lib/host/engine.js:2014`](../../lib/host/engine.js#L2014)）。
+- 权限：调用 `permissionPresets.resolve(preset)` 与 `permissionPresets.set(session, preset)`；失败只记 `warn`，沿用会话默认权限（[`lib/host/engine.js:2345`](../../lib/host/engine.js#L2345)）。
+- 模型：`sessionController.selectModel({ sessionId, provider, model, reasoningEffort? })`；失败同样只降级（[`lib/host/engine.js:2363`](../../lib/host/engine.js#L2363)）。
 
 ### 5.3 发送提示词
 
-`composePrompt()` 组装最终文本（见第 6 节）；判断节点还会追加判定契约。然后用 `mode: 'queue'` 投递（[`lib/host/engine.js:2020`](../../lib/host/engine.js#L2020)）：
+`composePrompt()` 组装最终文本（见第 6 节）；判断节点还会追加判定契约。然后用 `mode: 'queue'` 投递（[`lib/host/engine.js:2369`](../../lib/host/engine.js#L2369)）：
 
-- 每个节点创建一个 `AbortController`，以 `runId::nodeId` 为键登记到 `promptSignals`；`finally` 中删除（[`lib/host/engine.js:2025`](../../lib/host/engine.js#L2025)）。
+- 每个节点创建一个 `AbortController`，以 `runId::nodeId` 为键登记到 `promptSignals`；`finally` 中删除（[`lib/host/engine.js:2374`](../../lib/host/engine.js#L2374)）。
 - 中止这个 signal 只会撤回**尚未被准入**的提示词，不会打断已经开始的轮次；真正的停会话由 `sessionController.cancel()` 负责。
-- 提示词发送成功记一条带字数的日志（[`lib/host/engine.js:2039`](../../lib/host/engine.js#L2039)）。
+- 提示词发送成功记一条带字数的日志（[`lib/host/engine.js:2388`](../../lib/host/engine.js#L2388)）。
 
 ### 5.4 等待完成：轮次边界与会话静默
 
-`waitForTurn()`（[`lib/host/engine.js:2074`](../../lib/host/engine.js#L2074)）等到任务会话**真正静默**才返回，而不是「第一个轮次结束」就返回：
+`waitForTurn()`（[`lib/host/engine.js:2423`](../../lib/host/engine.js#L2423)）等到任务会话**真正静默**才返回，而不是「第一个轮次结束」就返回：
 
-- 监听 `ctx.on('session/event')`：`turn/start` 记录开始时间；`turn/end` 且 `seq > startSeq` 时触发一次完成检查（[`lib/host/engine.js:2247`](../../lib/host/engine.js#L2247)）。
-- 同时每 250 ms 轮询一次 `snapshotEvents()`，作为事件丢失时的兜底（[`lib/host/engine.js:2257`](../../lib/host/engine.js#L2257)）。
-- `startSeq` 取自发送提示词前的 `session.seq`（[`lib/host/engine.js:2021`](../../lib/host/engine.js#L2021)），保证只认本轮之后结束的轮次。
+- 监听 `ctx.on('session/event')`：`turn/start` 记录开始时间；`turn/end` 且 `seq > startSeq` 时触发一次完成检查（[`lib/host/engine.js:2596`](../../lib/host/engine.js#L2596)）。
+- 同时每 250 ms 轮询一次 `snapshotEvents()`，作为事件丢失时的兜底（[`lib/host/engine.js:2606`](../../lib/host/engine.js#L2606)）。
+- `startSeq` 取自发送提示词前的 `session.seq`（[`lib/host/engine.js:2370`](../../lib/host/engine.js#L2370)），保证只认本轮之后结束的轮次。
 
 一次完成检查必须同时满足以下条件（与 DSH headless 宿主的完成契约一致）：
 
-1. `startSeq` 之后最近一个 `turn/end` 的 `reason.kind` 是 `completed`；失败/中止的轮次是终态，立即按失败落定，不再等待后台子任务，并尽力停止该回合留下的后台子代理（[`lib/host/engine.js:2207`](../../lib/host/engine.js#L2207)）；
+1. `startSeq` 之后最近一个 `turn/end` 的 `reason.kind` 是 `completed`；失败/中止的轮次是终态，立即按失败落定，不再等待后台子任务，并尽力停止该回合留下的后台子代理（[`lib/host/engine.js:2556`](../../lib/host/engine.js#L2556)）；
 2. `agents.get(sessionId)` 存在时其 `status === 'idle'`；会话已卸载（取不到 Agent）视为静默；
 3. 宿主 `subagents` 服务可用时，`subagents.waitForChildren(agent)`（返回“仍有工作”）或较新宿主的 `waitForTreeWork(agent)`（返回“已汇合工作、需要重新检查”）都不再报告需要等待的子代理工作；
 4. 会话没有仍在等待用户回答的提问（见 5.6）；等待用户期间不落定，节点显示「等待用户回复」；
-5. 检查期间 `session.seq` 没有变化，即没有新的完成通知或轮次插进来（[`lib/host/engine.js:2243`](../../lib/host/engine.js#L2243)）。
+5. 检查期间 `session.seq` 没有变化，即没有新的完成通知或轮次插进来（[`lib/host/engine.js:2592`](../../lib/host/engine.js#L2592)）。
 
 不满足就继续等待。后台子代理结算后，DSH 会向任务会话投递结算通知并开启新轮次；下一轮 `turn/end` 后重新检查，直到会话静默。若最后一个回合不是 `completed`，会立即按该回合落定；否则等到会话静默后，取 `startSeq` 之后**最后一个** `turn/end` 的 reason 作为任务结果，`output` 取最后一条 assistant 文本。
 
-`readTurnOutcome()` 扫描事件，取最后一个 `turn/end`，映射 `reason.kind`（[`lib/host/engine.js:560`](../../lib/host/engine.js#L560)）：
+`readTurnOutcome()` 扫描事件，取最后一个 `turn/end`，映射 `reason.kind`（[`lib/host/engine.js:562`](../../lib/host/engine.js#L562)）：
 
 | `reason.kind` | 任务结果 | 错误信息 |
 | --- | --- | --- |
@@ -246,7 +268,7 @@ sequenceDiagram
 | `blocked` | 失败 | `该轮被拦截（会话已归档或未通过准入）` |
 | 其它 | 失败 | `轮次结束原因：<kind>` |
 
-成功路径的 `output` 是最后一条 assistant 消息里的文本块拼接（[`lib/host/engine.js:366`](../../lib/host/engine.js#L366)）；派生失败（例如会话正在替换）按「无输出」处理。
+成功路径的 `output` 是最后一条 assistant 消息里的文本块拼接（[`lib/host/engine.js:368`](../../lib/host/engine.js#L368)）；派生失败（例如会话正在替换）按「无输出」处理。
 
 ### 5.5 后台子代理与完成判定
 
@@ -257,12 +279,12 @@ sequenceDiagram
 - `subagents` 是**可选**宿主服务（`ctx.get('subagents')`）。服务缺失、两种等待方法都缺失或调用抛错时，等待退化为「第一个结束轮次」的旧行为，不会让任务失败；此时无法感知后台子代理，因此会记一条 `WARN` 日志（每个节点一次）避免静默退化。两种 API 的返回语义不同：旧 `waitForChildren()` 返回“仍有工作”，新 `waitForTreeWork()` 返回“已汇合工作、宿主需重新检查”，引擎统一按“需要继续检查”处理，宁可多等一个轮询也不误判完成。
 - 回合以失败/中止结束时节点立即落定，并尽力停止该回合留下的后台子代理，避免留下无人消费的后台工作。
 - 静默检查只针对**本轮之后**的会话状态：历史轮次、其他会话的事件都不参与。
-- `cancel-tasks` 终止运行时，正在等待子代理的节点会取消任务会话，并尽力调用 `subagents.drainDescendants(agent)` 停止其后代，然后以「任务已被终止」失败；调度层按 `cancelled` 收尾（[`lib/host/engine.js:2179`](../../lib/host/engine.js#L2179)）。
+- `cancel-tasks` 终止运行时，正在等待子代理的节点会取消任务会话，并尽力调用 `subagents.drainDescendants(agent)` 停止其后代，然后以「任务已被终止」失败；调度层按 `cancelled` 收尾（[`lib/host/engine.js:2528`](../../lib/host/engine.js#L2528)）。
 - `detach` 终止运行时不打断等待：任务继续执行到静默结束，节点仍可变为「已完成」，整次运行最终记为「已停止」。
 
 ### 5.6 等待用户回复
 
-任务/判断节点里的 agent 可以用 `ask_user_question` 向用户提问。提问未回答时**不是**节点结果：轮次可能仍卡在提问的工具调用上，也可能已经结束（限时提问超时后返回 pending 结果，模型先输出一段「等待回复」的阶段性文本）。`waitForTurn()` 因此把「会话仍在等待用户回答」并入静默契约（5.4 的第 4 条），检测由 `pendingUserQuestions()`（[`lib/host/engine.js:497`](../../lib/host/engine.js#L497)）完成，两个独立信号覆盖宿主的两种提问模式：
+任务/判断节点里的 agent 可以用 `ask_user_question` 向用户提问。提问未回答时**不是**节点结果：轮次可能仍卡在提问的工具调用上，也可能已经结束（限时提问超时后返回 pending 结果，模型先输出一段「等待回复」的阶段性文本）。`waitForTurn()` 因此把「会话仍在等待用户回答」并入静默契约（5.4 的第 4 条），检测由 `pendingUserQuestions()`（[`lib/host/engine.js:499`](../../lib/host/engine.js#L499)）完成，两个独立信号覆盖宿主的两种提问模式：
 
 | 信号 | 覆盖场景 | 来源 |
 | --- | --- | --- |
@@ -280,11 +302,11 @@ sequenceDiagram
 
 ## 6. 上游上下文
 
-`upstreamTaskNodes()` 沿前序反向遍历，**穿过并行网关、判断节点与终止节点**（控制节点对下游透明），收集最近的任务祖先（[`lib/host/engine.js:321`](../../lib/host/engine.js#L321)）；多个分支会得到多个上游任务，最终按工作流节点顺序返回。因此「任务 A → 判断节点 → 任务 B」中，B 拿到的仍是 A 的输出，判断节点的判定文本不会混进业务上下文。
+`upstreamTaskNodes()` 沿前序反向遍历，**穿过并行网关、判断节点与终止节点**（控制节点对下游透明），收集最近的任务祖先（[`lib/host/engine.js:323`](../../lib/host/engine.js#L323)）；多个分支会得到多个上游任务，最终按工作流节点顺序返回。因此「任务 A → 判断节点 → 任务 B」中，B 拿到的仍是 A 的输出，判断节点的判定文本不会混进业务上下文。
 
-`upstreamStates()` 只保留状态为 `completed` 的上游（[`lib/host/engine.js:1963`](../../lib/host/engine.js#L1963)），全量与范围执行都适用；因此「未执行」、范围外或未完成的上游不会进入下游提示词，也不会被当成有输出。
+`upstreamStates()` 只保留状态为 `completed` 的上游（[`lib/host/engine.js:2312`](../../lib/host/engine.js#L2312)），全量与范围执行都适用；因此「未执行」、范围外或未完成的上游不会进入下游提示词，也不会被当成有输出。
 
-`composePrompt(node, upstreamStates, mode)` 的规则（[`lib/host/engine.js:343`](../../lib/host/engine.js#L343)）：
+`composePrompt(node, upstreamStates, mode)` 的规则（[`lib/host/engine.js:345`](../../lib/host/engine.js#L345)）：
 
 | 模式 | 行为 |
 | --- | --- |
@@ -307,7 +329,7 @@ sequenceDiagram
 
 ## 7. 停止与取消
 
-`stop(runId, { cancelTasks })`（[`lib/host/engine.js:1351`](../../lib/host/engine.js#L1351)）：
+`stop(runId, { cancelTasks })`（[`lib/host/engine.js:1456`](../../lib/host/engine.js#L1456)）：
 
 - 不传 `runId` 时取第一个活动运行；找不到抛「没有正在运行的工作流」。
 - 重复请求直接返回当前快照，不重复取消。
@@ -331,7 +353,7 @@ sequenceDiagram
 判断节点创建一个真实任务会话，可配置的字段与任务节点完全相同（提示词、上游上下文、工作区、模式、权限、模型）。区别只在提示词与结果解释：
 
 - `executeTaskReal()` 在 `composePrompt()` 的结果后追加判定契约 `VERDICT_CONTRACT`，要求模型在最后单独一行输出 `WOF_DECISION: CONTINUE` 或 `WOF_DECISION: STOP`。
-- 轮次结束后由 `parseJudgeDecision()`（[`lib/host/engine.js:110`](../../lib/host/engine.js#L110)）解析输出：取**最后一次**匹配（忽略大小写，支持中英文冒号）。
+- 轮次结束后由 `parseJudgeDecision()`（[`lib/host/engine.js:112`](../../lib/host/engine.js#L112)）解析输出：取**最后一次**匹配（忽略大小写，支持中英文冒号）。
 - 判定 `STOP` → `applyJudgeDecision()` 调用 `terminateRun()` 提前结束本次运行；`CONTINUE` → 判断节点正常完成并放行后继。
 - 没有识别到判定 → 按节点 `control.onInvalid` 处理（默认 `continue`），并记一条 `WARN`。
 - 判定结果写入运行节点状态的 `decision`（`CONTINUE` / `STOP`），日志输出「判断节点「X」判定：继续 / 终止工作流」。
@@ -350,7 +372,7 @@ sequenceDiagram
 
 ### 8.3 提前终止的运行语义
 
-`terminateRun(run, node, reason)`（[`lib/host/engine.js:1432`](../../lib/host/engine.js#L1432)）：
+`terminateRun(run, node, reason)`（[`lib/host/engine.js:1537`](../../lib/host/engine.js#L1537)）：
 
 1. 第一次终止生效，设置运行字段并记一条 `WARN`；后续判断节点再判 `STOP` 直接忽略。
 2. 运行记录新增 `terminated`、`terminatedBy`（`{ nodeId, title }`）、`terminatedReason`、`terminatedAt`、`terminatedHadFailure`、`terminatedPolicy`。
@@ -455,7 +477,7 @@ sequenceDiagram
 | 轮询间隔 | 250 ms | `waitForTurn` 的兜底轮询与静默检查 |
 | 总等待上限 | 6 小时 + 8 秒 | 超过即「任务等待超时」 |
 
-判定「空闲」的依据是 `agents.get(sessionId)` 不存在，或其 `status !== 'running'`（[`lib/host/engine.js:2264`](../../lib/host/engine.js#L2264)）。等待后台子代理时主会话本身是空闲的，所以 6 小时超时按最近一次 `turn/start` 起算；即使该事件发生在等待注册监听之前，也会从会话事件日志补齐，避免只依赖总上限。`cancel-tasks` 终止会取消会话并尽力停止其后代。计时器调用了 `unref()`，不会单独阻止进程退出。
+判定「空闲」的依据是 `agents.get(sessionId)` 不存在，或其 `status !== 'running'`（[`lib/host/engine.js:2613`](../../lib/host/engine.js#L2613)）。等待后台子代理时主会话本身是空闲的，所以 6 小时超时按最近一次 `turn/start` 起算；即使该事件发生在等待注册监听之前，也会从会话事件日志补齐，避免只依赖总上限。`cancel-tasks` 终止会取消会话并尽力停止其后代。计时器调用了 `unref()`，不会单独阻止进程退出。
 
 **等待用户回复期间，上表两个超时暂停计时**：轮询发现仍有待回答提问时直接跳过单节点超时与总等待上限两个分支（见 5.6）。等待多久由用户决定，唯一的退出方式是回答或手动「终止」；这也是「等待用户回复」不会像后台子代理那样被 6 小时上限收尾的原因。
 
@@ -475,20 +497,20 @@ sequenceDiagram
 
 ## 14. 日志与容量
 
-- `engine.log()` 生成 `{ time, level, message, nodeId?, nodeTitle? }`，内存中最多保留 `MAX_LOG_LINES = 800` 行（[`lib/host/engine.js:1052`](../../lib/host/engine.js#L1052)）。
+- `engine.log()` 生成 `{ time, level, message, nodeId?, nodeTitle? }`，内存中最多保留 `MAX_LOG_LINES = 800` 行（[`lib/host/engine.js:1170`](../../lib/host/engine.js#L1170)）。
 - 同时按级别转发到宿主日志：`error` 用 `logger.warn`，其余用 `logger.info`，前缀统一为 `workflow-orchestrator:`。
-- 面板看到的运行快照会再截一次最近 800 行，并补 `active` 字段（[`lib/host/engine.js:594`](../../lib/host/engine.js#L594)）。
+- 面板看到的运行快照会再截一次最近 800 行，并补 `active` 字段（[`lib/host/engine.js:596`](../../lib/host/engine.js#L596)）。
 - 持久化时日志只留最近 400 行（compact 规则见 [数据模型](data-model.md)）。
-- `snapshotRuns()` 把持久化记录、各工作流最新运行、活动运行合并，按开始时间排序后只留最近 10 条（[`lib/host/engine.js:648`](../../lib/host/engine.js#L648)）。
+- `snapshotRuns()` 把持久化记录、各工作流最新运行、活动运行合并，按开始时间排序后只留最近 10 条（[`lib/host/engine.js:754`](../../lib/host/engine.js#L754)）。
 
 ## 15. 测试接缝与已知限制
 
-- 单测通过 `new WorkflowEngine(ctx, store, catalogs, { executeTask })` 注入假执行器，覆盖并行启动、串行、网关汇合、失败级联、两种停止模式、校验、prompt 组装、范围执行、判断节点（继续 / 终止 / 无效判定 / 判定解析）、终止节点（detach / cancel-tasks / 终止前后失败归并）、完成判定（后台子代理未结算 / 只认最后轮次 / 无 `subagents` 服务降级 / `waitForChildren` 与 `waitForTreeWork` 两种 API / 终止等待中的任务）、等待用户回复（`pendingUserQuestions` 信号解析 / 阻塞式提问挂起完成 / 限时提问超时后等待迟到回复 / 无投影服务降级 / 等待中终止清空状态）与上游上下文透传。
-- 定时/动作/等待节点另有构造选项 seam：`executeAction`（假动作执行器，测试绝不真的关机）、`waitPollMs`（缩短轮询间隔）、`now`（注入时钟）、`schedulerEnabled: false` + 手动调用 `tickSchedules()`（可控的调度器测试）。覆盖一次性与流程中间定时、手动执行入口定时立即放行、10 分钟补触发窗口内/外、重启后一次性触发不重复补跑、周期补触发只补一次、等待中停止/提前终止取消、动作成功/失败、真实动作执行器的 dryRun 安全默认、等待节点真正静默（含子 Agent 与提问）、等待失败/超时/会话关闭、候选任务列表、调度器自动启动与运行中跳过、`rootTimerNodes()`。
+- 单测通过 `new WorkflowEngine(ctx, store, catalogs, { executeTask })` 注入假执行器，覆盖并行启动、串行、网关汇合、失败级联、两种停止模式、校验、prompt 组装、范围执行、判断节点（继续 / 终止 / 无效判定 / 判定解析）、终止节点（detach / cancel-tasks / 终止前后失败归并）、完成判定（后台子代理未结算 / 只认最后轮次 / 无 `subagents` 服务降级 / `waitForChildren` 与 `waitForTreeWork` 两种 API / 终止等待中的任务）、等待用户回复（`pendingUserQuestions` 信号解析 / 阻塞式提问挂起完成 / 限时提问超时后等待迟到回复 / 无投影服务降级 / 等待中终止清空状态）、上游上下文透传，以及**活图修改**（改待执行节点的提示词 / 向下游追加节点 / 删除未启动节点 / 修改已启动节点不重跑 / 校验失败的修改不生效且只警告一次 / 删除等待中的定时节点让运行脱身 / 探针发现新节点立即启动 / 删除范围执行的起始节点仍沿用原范围）。
+- 定时/动作/等待节点另有构造选项 seam：`executeAction`（假动作执行器，测试绝不真的关机）、`waitPollMs`（缩短轮询间隔）、`liveGraphRefreshMs`（活图探针间隔，`0` 关闭探针，只验证调度边界）、`now`（注入时钟）、`schedulerEnabled: false` + 手动调用 `tickSchedules()`（可控的调度器测试）。覆盖一次性与流程中间定时、手动执行入口定时立即放行、10 分钟补触发窗口内/外、重启后一次性触发不重复补跑、周期补触发只补一次、等待中停止/提前终止取消、动作成功/失败、真实动作执行器的 dryRun 安全默认、等待节点真正静默（含子 Agent 与提问）、等待失败/超时/会话关闭、候选任务列表、调度器自动启动与运行中跳过、`rootTimerNodes()`。
 - 每个任务节点**只执行一次**：没有重试与循环；周期性由**入口定时节点 + 调度器启动新的运行**实现，单次运行内不会循环。
 - 网关只有并行网关一种，只做汇合与扇出，不创建会话。
 - 判断节点是**全局终止**语义：判定 STOP 结束整次运行；不能按判定结果走不同分支（那需要未来的排他网关 / 条件分支）。
-- 运行期间画布可继续编辑，但运行使用启动时快照。
+- 运行期间画布可继续编辑，按 §1.1 的活图规则在**本次运行**中生效：只有尚未启动的节点会采用新设置，已开始/已完成的节点不会被重跑。
 - 同一工作流同时只允许一个活动运行；周期触发撞上运行中的工作流会跳过，不排队；多个工作流同一时刻到点时会各自启动（没有全局并发上限）。
 - 定时/等待/动作节点不占用 `MAX_CONCURRENT_TASKS` 名额；长等待本身没有单节点超时，只有等待节点的 12 小时上限与手动停止。
 - **不做断点续跑**：范围执行只在本次运行跳过范围外节点，下一次全量执行仍会为所有任务节点新建会话。

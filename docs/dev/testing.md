@@ -6,16 +6,16 @@
 
 | 层级 | 文件 | 数量 | 需要 DSH？ | 典型耗时 |
 | --- | --- | --- | --- | --- |
-| 引擎单元测试 | [`test/engine.test.mjs`](../../test/engine.test.mjs) | 61 个用例 | 否（用假执行器 / 假动作执行器 / 注入时钟） | 秒级 |
-| 存储/路由集成测试 | [`test/store-routes.test.mjs`](../../test/store-routes.test.mjs) | 11 个用例 | 否（临时目录 + 假 req/res） | 秒级 |
+| 引擎单元测试 | [`test/engine.test.mjs`](../../test/engine.test.mjs) | 69 个用例 | 否（用假执行器 / 假动作执行器 / 注入时钟） | 秒级 |
+| 存储/路由集成测试 | [`test/store-routes.test.mjs`](../../test/store-routes.test.mjs) | 12 个用例 | 否（临时目录 + 假 req/res） | 秒级 |
 | 发布工具单元测试 | [`test/release.test.mjs`](../../test/release.test.mjs) | 8 个用例 | 否（纯函数） | 毫秒级 |
 | 全链路 E2E | [`tools/e2e-full.cjs`](../../tools/e2e-full.cjs) | 79 条断言（已把节点面板断言从 4 张改为 7 张，本次未复跑） | 是（隔离 `DSH_HOME` + 真实模型） | 分钟级 |
 
 ```mermaid
 flowchart TB
   A["E2E · 79 条断言（未覆盖新节点）· 真实 DSH / Chromium / 模型"]
-  B["集成测试 · 11 个用例 · 存储往返 + 路由 + 准入 + 新节点清洗"]
-  C["单元测试 · 61 个用例 · DAG 调度、完成判定、定时/动作/等待节点"]
+  B["集成测试 · 12 个用例 · 存储往返 + 路由 + 准入 + 新节点清洗 + 修订号"]
+  C["单元测试 · 69 个用例 · DAG 调度、完成判定、定时/动作/等待节点、活图修改"]
   D["发布工具 · 8 个用例 · CHANGELOG 归档与发布门禁"]
   A --> B --> C
   C -.-> E["npm test · 每次提交"]
@@ -34,7 +34,7 @@ npm test
 node --test test/engine.test.mjs test/store-routes.test.mjs test/release.test.mjs
 ```
 
-引擎单测不启动 DSH：`WorkflowEngine` 构造函数接受 `options.executeTask` 作为测试接缝（[`lib/host/engine.js:607`](../../lib/host/engine.js#L607)），测试用 `createHarness()` 注入假执行器（[`test/engine.test.mjs:40`](../../test/engine.test.mjs#L40)）。假执行器返回 `{ sessionId, output }`，用 `deferred()` 控制完成时机，从而精确断言「谁先启动、谁在等谁」。完成判定另有 `createTurnHarness()`（[`test/engine.test.mjs:711`](../../test/engine.test.mjs#L711)），用假 `sessions` / `agents` / 可选 `subagents` 服务直接驱动 `waitForTurn()`。新增节点使用 `createControlHarness()`（`executeAction` / 假 `sessions` / 假 `agents` / `waitPollMs`）与 `createScheduleHarness()`（`now` 注入时钟 + 手动 `tickSchedules()`），真实动作执行器在测试中**从不被调用**，不会真的关机。
+引擎单测不启动 DSH：`WorkflowEngine` 构造函数接受 `options.executeTask` 作为测试接缝（[`lib/host/engine.js:705`](../../lib/host/engine.js#L705)），测试用 `createHarness()` 注入假执行器（[`test/engine.test.mjs:40`](../../test/engine.test.mjs#L40)）。假执行器返回 `{ sessionId, output }`，用 `deferred()` 控制完成时机，从而精确断言「谁先启动、谁在等谁」。完成判定另有 `createTurnHarness()`（[`test/engine.test.mjs:711`](../../test/engine.test.mjs#L711)），用假 `sessions` / `agents` / 可选 `subagents` 服务直接驱动 `waitForTurn()`。新增节点使用 `createControlHarness()`（`executeAction` / 假 `sessions` / 假 `agents` / `waitPollMs`）与 `createScheduleHarness()`（`now` 注入时钟 + 手动 `tickSchedules()`）；活图修改用 `createLiveHarness()`（可变定义 + 自增 `store.revision`，`edit()` 模拟运行中的保存，`liveGraphRefreshMs: 0` 可关掉轮询以便只验证调度边界），真实动作执行器在测试中**从不被调用**，不会真的关机。
 
 | 用例 | 覆盖语义 | 位置 |
 | --- | --- | --- |
@@ -85,6 +85,14 @@ node --test test/engine.test.mjs test/store-routes.test.mjs test/release.test.mj
 | 调度器自动启动 | 注入时钟：未到点不启动、到点自动启动一次并写入 `trigger`、不会重复触发 | [`test/engine.test.mjs:1662`](../../test/engine.test.mjs#L1662) |
 | 调度摘要 | `count`、`nextAt`、`valid` 与周期标记 | [`test/engine.test.mjs:1685`](../../test/engine.test.mjs#L1685) |
 | 运行中跳过周期触发 | 单运行约束下只启动首个运行，下一次周期跳过 | [`test/engine.test.mjs:1703`](../../test/engine.test.mjs#L1703) |
+| 活图：改待执行节点 | 运行中修改待执行节点的提示词，节点启动时用新提示词，并写一条「已按最新定义继续」日志 | [`test/engine.test.mjs:2036`](../../test/engine.test.mjs#L2036) |
+| 活图：追加下游节点 | 运行中把 `A → B` 扩成 `A → B → C`，C 在前序完成后执行 | [`test/engine.test.mjs:2065`](../../test/engine.test.mjs#L2065) |
+| 活图：删除未启动节点 | 节点直接 `not-run` 且不再阻塞运行，整体仍 `completed` | [`test/engine.test.mjs:2100`](../../test/engine.test.mjs#L2100) |
+| 活图：改已启动节点 | 已发出的提示词与执行不重来，只记「已开始的节点保持原有设置」 | [`test/engine.test.mjs:2125`](../../test/engine.test.mjs#L2125) |
+| 活图：校验失败不生效 | 环图修改不采用、只警告一次，运行继续用旧图跑完 | [`test/engine.test.mjs:2148`](../../test/engine.test.mjs#L2148) |
+| 活图：删除等待中的定时节点 | 取消等待并按 `not-run` 落定，运行不被挂到未来时间 | [`test/engine.test.mjs:2179`](../../test/engine.test.mjs#L2179) |
+| 活图：修订号探针 | 没有节点落定时，新建节点也能被 1 秒轮询发现并启动 | [`test/engine.test.mjs:2213`](../../test/engine.test.mjs#L2213) |
+| 活图：删除起始节点 | 范围执行冻结原范围，其余修改照常采用 | [`test/engine.test.mjs:2237`](../../test/engine.test.mjs#L2237) |
 
 ## 2. 集成测试：存储与路由
 
@@ -102,6 +110,7 @@ node --test test/engine.test.mjs test/store-routes.test.mjs test/release.test.mj
 | 新节点输入清洗 | `timer` 模式/星期/时间/一次性时间、`action` 动作白名单与 clamp、`wait` 目标去重与默认标题 | [`test/store-routes.test.mjs:371`](../../test/store-routes.test.mjs#L371) |
 | 自动触发记录持久化 | 运行记录 `trigger` 字段往返 | [`test/store-routes.test.mjs:423`](../../test/store-routes.test.mjs#L423) |
 | 新路由 | `GET /api/periodic` 摘要、`GET /api/tasks` 候选、方法 405 与准入 403 | [`test/store-routes.test.mjs:458`](../../test/store-routes.test.mjs#L458) |
+| 定义修订号 | `save` / `remove` 自增、`setActive` / `recordRun` 不动它、重载从 0 开始（活图探测依赖它） | [`test/store-routes.test.mjs:556`](../../test/store-routes.test.mjs#L556) |
 
 注意：测试在删除临时目录前会重试等待最后一次写入落盘（[`test/store-routes.test.mjs:49`](../../test/store-routes.test.mjs#L49)），这是 Windows 上原子写 + 异步清理的已知需要。
 
@@ -115,6 +124,7 @@ node --test test/engine.test.mjs test/store-routes.test.mjs test/release.test.mj
 - **定时节点的真实时间链路**：单测用注入时钟 + 短 `setTimeout` 覆盖一次性/周期调度、入口节点立即放行与停止取消；真实 DSH 下需要等待真实时钟到点（或用一次性的近未来时间）验证自动启动，属于 E2E 待补场景；
 - **动作节点的真实平台动作**：单测通过 `executeAction` 注入假执行器，绝不真的关机/重启；真实执行器只在手工验收时使用，验证时必须先保持 `dryRun: true` 或选择无害动作（`log` / `open-url`）；
 - **等待任务完成节点的真实跨会话链路**：单测用假 sessions/agents 覆盖静默判定、子 Agent、提问、失败与停止；真实 DSH 下需要同时运行两个真实任务，再用手动执行的等待节点验证真正完成与子 Agent 场景；
+- **运行中改画布的完整链路**：单测用 `createLiveHarness()` 覆盖了「改提示词 / 追加节点 / 删除节点 / 校验失败 / 修订号探针」的调度语义；E2E 的补法是在一个 `A → B` 的工作流点「执行」后，趁 A 还在运行（提示词里要求模型等待或用长时间任务），在属性区改 B 的提示词并追加节点 C，断言消息窗口出现「运行中检测到工作流修改，已按最新定义继续」，且 B 的新会话提示词含新内容、C 也被调度；还要断言改 A 的提示词不会重启 A；
 - 浏览器半区的 React 组件逻辑（当前只由 E2E 覆盖）；新增节点卡、属性区、周期提醒条与侧栏徽标目前由只读的静态冒烟脚本（本地 `.probe/`，不入库）覆盖渲染分支，页面级交互仍需真实 E2E；
 - 状态文件损坏后的 `.corrupt-*` 恢复路径。
 
