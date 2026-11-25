@@ -1,6 +1,6 @@
 {
   "name": "dsh-workflow-orchestrator",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Visual workflow orchestrator for DeepSeek Harness: chain task sessions with a parallel gateway, edit node prompts in a right-side inspector, and watch a run log.",
   "type": "module",
   "main": "lib/index.js",

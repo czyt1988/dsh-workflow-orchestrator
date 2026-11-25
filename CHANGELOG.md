@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-25
+
 ### Added
 
 - **运行中实时调整（活图）**：引擎不再锁定启动时的画布快照。每个节点落定后（以及运行只是在等待时每 1 秒一次的修订号探针）都会回读存储中的定义，画布上的修改在本次运行中生效：尚未开始的节点使用最新的提示词、工作区、模型、权限、上下文模式与连线；新增节点会加入运行；删除未启动的节点不再阻塞运行（记为 `not-run`），删除正在等待的定时/等待节点会取消其等待，正在跑的任务继续跑完；已开始或已完成的节点保持原设置，不会被重启或重发提示词。校验不通过的修改不生效、只记一条 WARN；每次采用写一条「运行中检测到工作流修改，已按最新定义继续：…」日志。`WorkflowStore` 新增内存态定义修订号 `revision`（`save()` / `remove()` 自增），供引擎廉价探测。
@@ -88,7 +90,8 @@
 - 首个版本的功能与内部接口仍可能调整；升级前请阅读本文件。
 - 已知限制见 [README.md](README.md) 的「已知限制」一节（只支持并行网关、每个任务节点只执行一次、不支持循环 / 重试 / 定时触发等）。
 
-[Unreleased]: https://github.com/czyt1988/dsh-workflow-orchestrator/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/czyt1988/dsh-workflow-orchestrator/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/czyt1988/dsh-workflow-orchestrator/releases/tag/v0.4.0
 [0.3.0]: https://github.com/czyt1988/dsh-workflow-orchestrator/releases/tag/v0.3.0
 [0.2.0]: https://github.com/czyt1988/dsh-workflow-orchestrator/releases/tag/v0.2.0
 [0.1.0]: https://github.com/czyt1988/dsh-workflow-orchestrator/releases/tag/v0.1.0

@@ -12,7 +12,7 @@
 - 画布与运行记录持久化到 `$DSH_HOME/workflow-orchestrator/workflows.json`。
 - **运行时零第三方依赖**：宿主半区只用 Cordis 服务；浏览器半区的 `react` 复用壳层模块表；无构建步骤。
 
-当前版本 `0.3.0`，MIT。仓库按 GitHub 开源项目组织，发布流程见 [docs/dev/packaging-and-release.md](docs/dev/packaging-and-release.md)。
+当前版本 `0.4.0`，MIT。仓库按 GitHub 开源项目组织，发布流程见 [docs/dev/packaging-and-release.md](docs/dev/packaging-and-release.md)。
 
 ## 2. 开始之前（必读顺序）
 
