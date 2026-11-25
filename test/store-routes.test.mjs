@@ -552,3 +552,23 @@ test('routes expose the periodic summary and wait candidates', async () => {
     assert.equal(forbidden.status, 403)
   })
 })
+
+test('the definition revision moves only when a workflow definition changes', async () => {
+  await withTempDir(async (dir) => {
+    const store = new WorkflowStore(fakeCtx(dir))
+    await store.ready()
+    const before = store.revision
+    const saved = store.save({ name: '修订号', nodes: [], edges: [] })
+    assert.equal(store.revision, before + 1)
+    store.setActive(saved.id)
+    assert.equal(store.revision, before + 1)
+    store.recordRun({ id: 'run-x', workflowId: saved.id, workflowName: saved.name, status: 'completed', startedAt: 1, endedAt: 2, nodes: {}, log: [] })
+    assert.equal(store.revision, before + 1)
+    store.save({ id: saved.id, name: '修订号 2', nodes: [], edges: [] })
+    assert.equal(store.revision, before + 2)
+    store.remove(saved.id)
+    assert.equal(store.revision, before + 3)
+    // The counter is in-memory only: a reload starts a fresh run generation.
+    assert.equal(new WorkflowStore(fakeCtx(dir)).revision, 0)
+  })
+})

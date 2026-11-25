@@ -1971,3 +1971,297 @@ test('a wait failure keeps the run failed even when a terminate node fires later
   assert.equal(recorded[0].nodes.w.status, 'failed')
   assert.equal(recorded[0].terminated, true)
 })
+
+// ---------------------------------------------------------------------------
+// live graph: edits made in the panel while a run is in flight
+// ---------------------------------------------------------------------------
+
+/**
+ * Harness for live-edit tests. Its store mirrors the real one: it holds the
+ * current definition, returns deep copies, and bumps a `revision` on every
+ * save, which is what the engine probes before re-reading the graph.
+ */
+function createLiveHarness({ definition, executeTask, executeAction, engineOptions = {} }) {
+  const recorded = []
+  let current = definition
+  const store = {
+    revision: 1,
+    runs() {
+      return recorded.slice()
+    },
+    recordRun(run) {
+      recorded.push(run)
+    },
+    ready() {
+      return Promise.resolve()
+    },
+    get(id) {
+      return current !== undefined && current.id === id ? structuredClone(current) : undefined
+    },
+    save(next) {
+      current = next
+      this.revision += 1
+      return structuredClone(next)
+    },
+  }
+  const catalogs = {
+    async get() {
+      return { defaults: {} }
+    },
+  }
+  const ctx = {
+    logger: { info() {}, warn() {} },
+    on() {
+      return () => {}
+    },
+    get(name) {
+      if (name === 'dshHomePath') return () => '.'
+      return undefined
+    },
+    sessionController: {
+      cancel() {
+        return { accepted: true }
+      },
+    },
+  }
+  const engine = new WorkflowEngine(ctx, store, catalogs, {
+    schedulerEnabled: false,
+    ...(executeTask === undefined ? {} : { executeTask }),
+    ...(executeAction === undefined ? {} : { executeAction }),
+    ...engineOptions,
+  })
+  return { engine, store, recorded, edit: (next) => store.save(next) }
+}
+
+test('a live edit to a pending node applies when the run reaches it', async () => {
+  const prompts = []
+  const gates = new Map()
+  const base = workflow([task('a', '任务 A', '提示词 A'), task('b', '任务 B', '提示词 B')], [['a', 'b']])
+  const { engine, recorded, edit } = createLiveHarness({
+    definition: base,
+    executeTask: async ({ node }) => {
+      prompts.push({ id: node.id, prompt: node.task?.prompt })
+      const gate = deferred()
+      gates.set(node.id, gate)
+      return gate.promise
+    },
+  })
+  await engine.start(undefined, base)
+  await waitFor(() => gates.has('a'))
+  // The user rewrites task B's prompt while A is still running, then A ends.
+  edit(workflow([task('a', '任务 A', '提示词 A'), task('b', '任务 B', '提示词 B（改）')], [['a', 'b']]))
+  gates.get('a').resolve({ sessionId: 's-a', output: 'A 完成' })
+  await waitFor(() => gates.has('b'))
+  gates.get('b').resolve({ sessionId: 's-b', output: 'B 完成' })
+  await waitFor(() => recorded.length === 1)
+  assert.deepEqual(
+    prompts.map((entry) => entry.prompt),
+    ['提示词 A', '提示词 B（改）'],
+  )
+  assert.equal(recorded[0].status, 'completed')
+  assert.ok(recorded[0].log.some((entry) => entry.message.includes('运行中检测到工作流修改')))
+})
+
+test('a node appended downstream mid-run executes with the latest graph', async () => {
+  const order = []
+  const gates = new Map()
+  const base = workflow([task('a', '任务 A'), task('b', '任务 B')], [['a', 'b']])
+  const { engine, recorded, edit } = createLiveHarness({
+    definition: base,
+    executeTask: async ({ node }) => {
+      order.push(node.id)
+      const gate = deferred()
+      gates.set(node.id, gate)
+      return gate.promise
+    },
+  })
+  await engine.start(undefined, base)
+  await waitFor(() => gates.has('a'))
+  edit(
+    workflow(
+      [task('a', '任务 A'), task('b', '任务 B'), task('c', '任务 C')],
+      [
+        ['a', 'b'],
+        ['b', 'c'],
+      ],
+    ),
+  )
+  gates.get('a').resolve({ sessionId: 's-a', output: 'A' })
+  await waitFor(() => gates.has('b'))
+  gates.get('b').resolve({ sessionId: 's-b', output: 'B' })
+  await waitFor(() => gates.has('c'))
+  gates.get('c').resolve({ sessionId: 's-c', output: 'C' })
+  await waitFor(() => recorded.length === 1)
+  assert.deepEqual(order, ['a', 'b', 'c'])
+  assert.equal(recorded[0].status, 'completed')
+  assert.equal(recorded[0].nodes.c.status, 'completed')
+})
+
+test('a pending node deleted mid-run leaves the run instead of blocking it', async () => {
+  const gates = new Map()
+  const base = workflow([task('a', '任务 A'), task('b', '任务 B'), task('c', '任务 C')], [['a', 'b'], ['a', 'c']])
+  const { engine, recorded, edit } = createLiveHarness({
+    definition: base,
+    engineOptions: { liveGraphRefreshMs: 0 },
+    executeTask: async ({ node }) => {
+      const gate = deferred()
+      gates.set(node.id, gate)
+      return gate.promise
+    },
+  })
+  await engine.start(undefined, base)
+  await waitFor(() => gates.has('a'))
+  edit(workflow([task('a', '任务 A'), task('b', '任务 B')], [['a', 'b']]))
+  gates.get('a').resolve({ sessionId: 's-a', output: 'A' })
+  await waitFor(() => gates.has('b'))
+  gates.get('b').resolve({ sessionId: 's-b', output: 'B' })
+  await waitFor(() => recorded.length === 1)
+  assert.equal(recorded[0].status, 'completed')
+  assert.equal(recorded[0].nodes.b.status, 'completed')
+  assert.equal(recorded[0].nodes.c.status, 'not-run')
+  assert.match(recorded[0].nodes.c.error, /删除/)
+})
+
+test('an edited node that already started is neither restarted nor re-prompted', async () => {
+  const prompts = []
+  const gate = deferred()
+  const base = workflow([task('a', '任务 A', '原始提示词'), task('b', '任务 B')], [['a', 'b']])
+  const { engine, recorded, edit } = createLiveHarness({
+    definition: base,
+    engineOptions: { liveGraphRefreshMs: 0 },
+    executeTask: async ({ node }) => {
+      prompts.push({ id: node.id, prompt: node.task?.prompt })
+      if (node.id === 'a') await gate.promise
+      return { sessionId: `s-${node.id}`, output: 'ok' }
+    },
+  })
+  await engine.start(undefined, base)
+  await waitFor(() => prompts.length === 1)
+  edit(workflow([task('a', '任务 A', '改过的提示词'), task('b', '任务 B')], [['a', 'b']]))
+  await waitFor(() => recorded.length === 0)
+  gate.resolve()
+  await waitFor(() => recorded.length === 1)
+  assert.deepEqual(prompts.filter((entry) => entry.id === 'a').map((entry) => entry.prompt), ['原始提示词'])
+  assert.ok(recorded[0].log.some((entry) => entry.message.includes('已开始的节点保持原有设置')))
+})
+
+test('a live edit that fails validation is reported once and does not break the run', async () => {
+  const gates = new Map()
+  const base = workflow([task('a', '任务 A'), task('b', '任务 B')], [['a', 'b']])
+  const { engine, recorded, edit } = createLiveHarness({
+    definition: base,
+    engineOptions: { liveGraphRefreshMs: 0 },
+    executeTask: async ({ node }) => {
+      const gate = deferred()
+      gates.set(node.id, gate)
+      return gate.promise
+    },
+  })
+  await engine.start(undefined, base)
+  await waitFor(() => gates.has('a'))
+  // A cycle: the definition must not be adopted mid-run.
+  edit(
+    workflow([task('a', '任务 A'), task('b', '任务 B')], [
+      ['a', 'b'],
+      ['b', 'a'],
+    ]),
+  )
+  gates.get('a').resolve({ sessionId: 's-a', output: 'A' })
+  await waitFor(() => gates.has('b'))
+  gates.get('b').resolve({ sessionId: 's-b', output: 'B' })
+  await waitFor(() => recorded.length === 1)
+  assert.equal(recorded[0].status, 'completed')
+  const warnings = recorded[0].log.filter((entry) => entry.message.includes('未通过校验'))
+  assert.equal(warnings.length, 1)
+  assert.match(warnings[0].message, /环路/)
+})
+
+test('a delete of a waiting timer node releases the run instead of pinning it', { timeout: 8000 }, async () => {
+  const gate = deferred()
+  const definition = workflow(
+    [task('a', '任务 A'), timerNode('t', '定时', { mode: 'once', at: Date.now() + 3600_000 }), task('b', '任务 B'), task('d', '并行任务 D')],
+    [
+      ['a', 't'],
+      ['t', 'b'],
+    ],
+  )
+  const started = []
+  const { engine, recorded, edit } = createLiveHarness({
+    definition,
+    engineOptions: { liveGraphRefreshMs: 0 },
+    executeTask: async ({ node }) => {
+      started.push(node.id)
+      if (node.id === 'd') await gate.promise
+      return { sessionId: `s-${node.id}`, output: 'ok' }
+    },
+  })
+  await engine.start(undefined, definition)
+  await waitFor(() => started.includes('a'))
+  // Wait until the timer really is waiting (a completed, t has no result yet).
+  await waitFor(() => engine.getRun([...engine.active.keys()][0])?.nodes?.t?.timerState?.waitUntil > Date.now())
+  edit(
+    workflow([task('a', '任务 A'), task('b', '任务 B'), task('d', '并行任务 D')], [['a', 'b']]),
+  )
+  gate.resolve()
+  await waitFor(() => started.includes('b'), 5000)
+  await waitFor(() => recorded.length === 1, 5000)
+  assert.equal(recorded[0].status, 'completed')
+  assert.equal(recorded[0].nodes.t.status, 'not-run')
+  assert.ok(recorded[0].log.some((entry) => entry.message.includes('已从工作流删除')))
+})
+
+test('the live probe starts a newly added node while a long task still runs', { timeout: 8000 }, async () => {
+  const gates = new Map()
+  const base = workflow([task('a', '任务 A')], [])
+  const { engine, recorded, edit } = createLiveHarness({
+    definition: base,
+    engineOptions: { liveGraphRefreshMs: 10 },
+    executeTask: async ({ node }) => {
+      const gate = deferred()
+      gates.set(node.id, gate)
+      return gate.promise
+    },
+  })
+  await engine.start(undefined, base)
+  await waitFor(() => gates.has('a'))
+  // No node settles here: only the periodic store probe can notice this edit.
+  edit(workflow([task('a', '任务 A'), task('c', '新增任务 C')], []))
+  await waitFor(() => gates.has('c'), 5000)
+  gates.get('a').resolve({ sessionId: 's-a', output: 'A' })
+  gates.get('c').resolve({ sessionId: 's-c', output: 'C' })
+  await waitFor(() => recorded.length === 1)
+  assert.equal(recorded[0].status, 'completed')
+  assert.equal(recorded[0].nodes.c.status, 'completed')
+})
+
+test('deleting the start node of a run-from-node run keeps its original scope', { timeout: 8000 }, async () => {
+  const gates = new Map()
+  const definition = workflow(
+    [task('a', '任务 A'), task('b', '任务 B'), task('c', '任务 C')],
+    [
+      ['a', 'b'],
+      ['b', 'c'],
+    ],
+  )
+  const { engine, recorded, edit } = createLiveHarness({
+    definition,
+    engineOptions: { liveGraphRefreshMs: 0 },
+    executeTask: async ({ node }) => {
+      const gate = deferred()
+      gates.set(node.id, gate)
+      return gate.promise
+    },
+  })
+  await engine.start(undefined, definition, { startNodeId: 'b' })
+  await waitFor(() => gates.has('b'))
+  edit(workflow([task('a', '任务 A'), task('c', '任务 C')], [['a', 'c']]))
+  gates.get('b').resolve({ sessionId: 's-b', output: 'B' })
+  await waitFor(() => gates.has('c'))
+  gates.get('c').resolve({ sessionId: 's-c', output: 'C' })
+  await waitFor(() => recorded.length === 1)
+  assert.equal(recorded[0].status, 'completed')
+  assert.equal(recorded[0].nodes.a.status, 'not-run')
+  assert.equal(recorded[0].nodes.b.status, 'completed')
+  assert.equal(recorded[0].nodes.c.status, 'completed')
+  assert.ok(recorded[0].log.some((entry) => entry.message.includes('起始节点已在运行中被删除')))
+})
