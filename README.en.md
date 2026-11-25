@@ -22,19 +22,44 @@
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome" /></a>
 </p>
 
-> **In one sentence**: add a first-level **Workflow Orchestrator** page (「工作流编排」 in the Chinese UI) to the DeepSeek Harness (DSH) sidebar. Drag task nodes onto a canvas, connect them and click **Run**: every task node creates a **real DSH task session** in the selected workspace. Sequential, parallel and joined execution is driven entirely by the edges, and progress streams into the message panel at the bottom. **Timer nodes** can start the workflow at a given time or on a recurring schedule, **action nodes** can finish a run with a system action (shutdown, open a URL, run a command, …), and **wait-for-tasks nodes** can wait until other real tasks have actually finished before continuing.
+> **In one sentence**: add a first-level **Workflow Orchestrator** page (「工作流编排」 in the Chinese UI) to the DeepSeek Harness (DSH) sidebar — drag task nodes onto a canvas, connect them and click **Run**, and every task node creates a **real DSH task session** in the workspace you selected.
 
 > **Language note**: the plugin UI and the linked user/developer guides are currently written in Simplified Chinese, so the screenshots show Chinese labels. This file is the English counterpart of [README.md](README.md).
 
 ---
 
+## What problem does it solve?
+
+Every task session in DSH does one thing. Chaining several steps, fanning out in parallel and joining back, or shutting the machine down afterwards means opening sessions by hand, watching each one and pasting the previous answer into the next. This plugin turns those steps into a canvas: click **Run** once and it drives real task sessions in the order your edges describe.
+
+## What you get
+
+- **Edges are the schedule**: sequential, parallel, join and early finish are all expressed by edges; one **Run** executes the whole graph.
+- **Every node is a real task session**: sessions are created in the chosen workspace, appear in its task list and open with one click.
+- **Seven node types**: task, parallel gateway, judge, terminate, timer, action and wait-for-tasks.
+- **Schedules and wrap-up**: timer nodes start the workflow at a set time or on a recurring interval; action nodes can shut down, open a URL or run a command (dry run by default — log only).
+- **Visible progress**: the message panel streams INFO / WARN / ERROR per node with session IDs and durations; the canvas and the last 20 runs are saved automatically.
+
+## Quick start
+
+```powershell
+dsh plugin --profile desktop add dsh-workflow-orchestrator   # 1. install (desktop profile is the default)
+# 2. refresh the page → "Workflow Orchestrator" in the sidebar → drag in two task nodes, fill both prompts, connect A to B
+# 3. click "Run" → the message panel shows A's session ID and completion, then B starts
+```
+
+Installation failed, or you prefer the discovery page / a local directory: see [Installation](#installation); step-by-step UI walkthrough: see [Your first workflow](#your-first-workflow).
+
 ## Contents
 
+- [What problem does it solve?](#what-problem-does-it-solve)
+- [What you get](#what-you-get)
+- [Quick start](#quick-start)
 - [Features](#features)
 - [Interface preview](#interface-preview)
 - [Architecture](#architecture)
 - [Installation](#installation)
-- [Quick start](#quick-start)
+- [Your first workflow](#your-first-workflow)
 - [Execution semantics](#execution-semantics)
 - [Documentation](#documentation)
 - [Repository layout](#repository-layout)
@@ -196,7 +221,7 @@ Listed plugins are third-party content; only add index sources you trust. See [P
 - The host half writes `loadedAt` to `$DSH_HOME/workflow-orchestrator/host-loaded.json`.
 - See [Getting started](docs/user/getting-started.md) and the [FAQ](docs/user/data-and-faq.md) for detailed steps and troubleshooting (both in Chinese).
 
-## Quick start
+## Your first workflow
 
 1. **Open the page**: click **Workflow Orchestrator** (「工作流编排」) in the sidebar.
 2. **Add a node**: drag a **task node** onto the canvas (or click the node card to add one). To run on a schedule, insert a system action, or wait for other tasks, drag in a **timer node**, an **action node** or a **wait-for-tasks node** as well.

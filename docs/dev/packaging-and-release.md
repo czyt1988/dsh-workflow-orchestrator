@@ -318,6 +318,7 @@ description:
 | 发布工作流 | [`.github/workflows/release.yml`](../../.github/workflows/release.yml) 的 npm Trusted Publisher 配置（在 npm 网站上填写 `OWNER/REPO` 与 `release.yml`） | 新 `OWNER/REPO` |
 | CHANGELOG 链接 | [`CHANGELOG.md`](../../CHANGELOG.md) 底部的 compare 与 release 链接 | 指向新 `OWNER/REPO` 的 tag |
 | 安装示例 | `README.md` / `README.en.md` 安装章节的路径示例 | 确认使用 `D:\path\to\dsh-workflow-orchestrator` 这类占位符，没有遗留本机路径 |
+| 社交预览图 | GitHub 仓库 **Settings → General → Social preview**（GitHub 不通过仓库文件或 API 设置，必须手工上传一次） | 上传 [`docs/assets/images/social-preview.png`](../../docs/assets/images/social-preview.png)（1280×640，含项目名与一句话说明）；换 owner 或改名后重新生成再上传 |
 | 徽章 | `README.md` 顶部 `<p align="center">` 中的 CI / License / Node / DSH / PRs 徽章 | 换 owner 时同步 actions badge 的 `OWNER/REPO` 与 shields.io 链接 |
 | 安全报告 | `SECURITY.md` 里的 Security Advisories 链接与邮箱占位 | 新仓库地址 + 维护者真实邮箱（替换 `security@example.com`） |
 | 行为准则 | `CODE_OF_CONDUCT.md` 里的联系方式占位（`conduct@example.com`） | 维护者真实可用邮箱 |

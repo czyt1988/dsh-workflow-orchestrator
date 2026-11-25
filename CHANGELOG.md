@@ -7,6 +7,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- **社交预览图**：新增 [`docs/assets/images/social-preview.png`](docs/assets/images/social-preview.png)（1280×640），在 GitHub 仓库 **Settings → Social preview** 上传后，分享链接不再显示 GitHub 默认的裸仓库预览图；卡片含项目名、一句话说明（中英双语）与并行汇合示意图。
+
+### Changed
+
+- **README 顶部结构**：[`README.md`](README.md) 与 [`README.en.md`](README.en.md) 顶部新增「它解决什么问题」「它提供什么」与三行快速开始：一句话讲清问题、5 条功能速览、三行从安装到第一次运行；原先的详细分步章节更名为「第一个工作流」，内容未变。
+
 ## [0.3.0] - 2026-11-22
 
 ### Added
